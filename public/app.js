@@ -33,10 +33,9 @@ function trainingStatus(tsb, ctl) {
 /* ─── Chart lifecycle ─── */
 let chartInstances = {};
 
-function destroyCharts(keep) {
-  const keepSet = new Set(keep || []);
-  for (const key of Object.keys(chartInstances)) {
-    if (!keepSet.has(key) && chartInstances[key]) {
+function destroyCharts(keys) {
+  for (const key of keys || []) {
+    if (chartInstances[key]) {
       chartInstances[key].destroy();
       delete chartInstances[key];
     }
@@ -186,22 +185,13 @@ async function renderTSS() {
 async function renderMuscle() {
   const exercise = document.getElementById('exercise-select').value;
   if (!exercise) {
-    /* No exercise selected — show prompt */
+    /* No exercise selected — show prompt, clear charts */
     document.getElementById('summary-cards-muscle').innerHTML = '';
     document.getElementById('alerts-muscle').innerHTML =
       '<div class="alert info">Select an exercise above to view muscle dynamics.</div>';
     document.querySelector('#plateau-section tbody').innerHTML = '';
     document.querySelector('#plateau-section tr.empty-msg')?.remove();
     destroyCharts(['muscle', 'rm']);
-    const opts = commonOpts();
-    ['muscleChart', 'rmChart'].forEach(id => {
-      const el = document.getElementById(id);
-      const key = id.replace('Chart', '');
-      if (chartInstances[key]) chartInstances[key].destroy();
-      chartInstances[key] = new Chart(el, {
-        type: 'line', data: { labels: [], datasets: [] }, options: opts
-      });
-    });
     return;
   }
 
