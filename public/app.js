@@ -268,17 +268,17 @@ async function renderMuscle() {
       const prev = i > 0 ? timeline[i - 1] : null;
       const netGain = d.anabolism - d.catabolism;
       const newMuscle = prev ? d.m - prev.m : 0;
-      const newPR = prev ? d.pr - prev.pr : 0;
+      const newRM = prev ? d.rm1_predicted - prev.rm1_predicted : 0;
       const netCls = netGain > 0 ? 'pos' : netGain < 0 ? 'neg' : '';
       const nmCls = newMuscle > 0 ? 'pos' : newMuscle < 0 ? 'neg' : '';
-      const nprCls = newPR > 0 ? 'pos' : newPR < 0 ? 'neg' : '';
+      const rmCls = newRM > 0 ? 'pos' : newRM < 0 ? 'neg' : '';
       rows += `<tr>
         <td>${d.day_key}</td>
         <td class="num">${formatNum(d.anabolism, 5)}</td>
         <td class="num">${formatNum(d.catabolism, 5)}</td>
         <td class="num ${netCls}">${formatNum(netGain, 5)}</td>
         <td class="num ${nmCls}">${formatNum(newMuscle, 5)}</td>
-        <td class="num ${nprCls}">${formatNum(newPR, 1)}</td>
+        <td class="num ${rmCls}">${formatNum(newRM, 1)}</td>
         <td class="num">${formatNum(d.pr, 1)}</td>
       </tr>`;
     }

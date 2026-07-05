@@ -4,6 +4,8 @@ const {
   updateM, checkPlateau, compute1RM, computeEpley1RM
 } = require('./muscle-dynamics');
 
+const PR_WINDOW_DAYS = 90;
+
 function analyzeExercise(exercise) {
   const dayKeys = db.getAllDayKeysForExercise(exercise);
   if (dayKeys.length === 0) return [];
@@ -17,9 +19,11 @@ function analyzeExercise(exercise) {
   const results = [];
 
   let prevM = 1.0;
-  let prevPR = 0;
   let prevWeightMult = 1.0;
   const mHistory = [];
+
+  /* 90-day sliding window for PR: stores { dayKey, epley } per training day */
+  const epleyWindow = [];
 
   for (let i = 0; i < totalDays; i++) {
     const currentDate = new Date(firstDate);
@@ -33,9 +37,21 @@ function analyzeExercise(exercise) {
     let A = 0;
     let sets = [];
     let totalSets = 0;
-    let currentPR = prevPR;
+    let currentPR = 0;
     let plateauHit = 0;
     let currentWeightMult = prevWeightMult;
+
+    /* Compute current PR from the sliding 90-day window */
+    const cutoffDate = new Date(currentDate);
+    cutoffDate.setDate(cutoffDate.getDate() - PR_WINDOW_DAYS);
+    const cutoffKey = cutoffDate.toISOString().slice(0, 10);
+    /* Remove expired entries */
+    while (epleyWindow.length > 0 && epleyWindow[0].dayKey < cutoffKey) {
+      epleyWindow.shift();
+    }
+    currentPR = epleyWindow.length > 0
+      ? Math.max(...epleyWindow.map(e => e.epley))
+      : 0;
 
     if (isTrainingDay) {
       sets = db.getSetsByDayAndExercise(dayKey, exercise);
@@ -46,7 +62,8 @@ function analyzeExercise(exercise) {
         return ep > max ? ep : max;
       }, 0);
 
-      if (prevPR === 0 && maxEpley > 0) {
+      /* If no PR in window yet, use today's max as the seed */
+      if (currentPR === 0 && maxEpley > 0) {
         currentPR = maxEpley;
       }
 
@@ -71,6 +88,15 @@ function analyzeExercise(exercise) {
         plateauHit = 1;
         currentWeightMult = currentWeightMult * 1.05;
       }
+
+      /* Add today's max Epley to the sliding window */
+      const todaysMax = sets.reduce((max, s) => {
+        const ep = computeEpley1RM(s.weight, s.reps);
+        return ep > max ? ep : max;
+      }, 0);
+      if (todaysMax > 0) {
+        epleyWindow.push({ dayKey, epley: todaysMax });
+      }
     }
 
     const rm1Pred = compute1RM(currentPR, newM, currentWeightMult);
@@ -90,7 +116,6 @@ function analyzeExercise(exercise) {
 
     mHistory.push(newM);
     prevM = newM;
-    prevPR = currentPR;
     prevWeightMult = currentWeightMult;
   }
 
