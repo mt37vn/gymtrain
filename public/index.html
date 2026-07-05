@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gym Training Analyzer</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Gym Training Analyzer</h1>
+    <div id="stats-bar"></div>
+  </header>
+  <main>
+    <section id="summary-cards"></section>
+    <section id="alerts"></section>
+    <section class="chart-container">
+      <h2>Fatigue Timeline (CTL / ATL / TSB)</h2>
+      <canvas id="fatigueChart"></canvas>
+    </section>
+    <section class="chart-container">
+      <h2>Muscle Mass (M) Over Time</h2>
+      <canvas id="muscleChart"></canvas>
+    </section>
+    <section class="chart-container">
+      <h2>1RM Prediction (PR / 1RM_pred)</h2>
+      <canvas id="rmChart"></canvas>
+    </section>
+    <section class="chart-container">
+      <h2>Daily TSS</h2>
+      <canvas id="tssChart"></canvas>
+    </section>
+    <section id="plateau-section">
+      <h2>Plateau Events</h2>
+      <table id="plateau-table">
+        <thead><tr><th>Date</th><th>Old Weight Mult</th><th>New Weight Mult</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
