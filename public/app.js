@@ -21,6 +21,15 @@ function getSelectedDays(selId) {
   return val;
 }
 
+/* ─── Training status ─── */
+function trainingStatus(tsb, ctl) {
+  if (ctl <= 0 && tsb === 0) return { label: 'Detrain', cls: 'detrain', desc: 'No training load detected' };
+  if (tsb > 20) return { label: 'Detrain', cls: 'detrain', desc: 'Low training load — consider increasing volume' };
+  if (tsb >= -10) return { label: 'Productive', cls: 'productive', desc: 'Optimal load — good adaptation' };
+  if (tsb >= -30) return { label: 'Strained', cls: 'strained', desc: 'High fatigue — monitor recovery' };
+  return { label: 'Overtrain', cls: 'overtrain', desc: 'Excessive load — deload strongly recommended' };
+}
+
 /* ─── Chart lifecycle ─── */
 let chartInstances = {};
 
@@ -33,6 +42,45 @@ function destroyCharts(keep) {
     }
   }
 }
+
+/* ─── Fatigue chart zone plugin ─── */
+const fatigueZonePlugin = {
+  id: 'fatigueZones',
+  beforeDraw(chart) {
+    const { ctx, chartArea: { left, right, top, bottom }, scales: { y } } = chart;
+    if (!y) return;
+    const zones = [
+      { min: -Infinity, max: -30, color: 'rgba(248,81,73,0.08)' },
+      { min: -30, max: -10, color: 'rgba(210,153,34,0.07)' },
+      { min: -10, max: 20, color: 'rgba(63,185,80,0.06)' },
+      { min: 20, max: Infinity, color: 'rgba(88,166,255,0.06)' }
+    ];
+    for (const zone of zones) {
+      const y1 = zone.min === -Infinity ? top : Math.max(top, y.getPixelForValue(zone.min));
+      const y2 = zone.max === Infinity ? bottom : Math.min(bottom, y.getPixelForValue(zone.max));
+      if (y1 < bottom && y2 > top) {
+        ctx.fillStyle = zone.color;
+        ctx.fillRect(left, y2, right - left, y1 - y2);
+      }
+    }
+    /* Zone labels on the right */
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'left';
+    const labels = [
+      { y: -35, text: 'Overtrain', color: '#f85149' },
+      { y: -20, text: 'Strained', color: '#d29922' },
+      { y: 5, text: 'Productive', color: '#3fb950' },
+      { y: 30, text: 'Detrain', color: '#58a6ff' }
+    ];
+    for (const lbl of labels) {
+      const py = Math.max(top + 4, Math.min(bottom - 4, y.getPixelForValue(lbl.y)));
+      ctx.fillStyle = lbl.color;
+      ctx.globalAlpha = 0.5;
+      ctx.fillText(lbl.text, right + 6, py + 3);
+      ctx.globalAlpha = 1;
+    }
+  }
+};
 
 /* ─── Shared chart options ─── */
 function commonOpts() {
@@ -70,8 +118,16 @@ async function renderTSS() {
   document.getElementById('stats-bar').textContent =
     `${stats.totalSets} sets · ${stats.totalDays} days`;
 
+  /* Training status */
+  const status = trainingStatus(summary.tsb, summary.ctl);
+
   /* Summary cards */
   document.getElementById('summary-cards-tss').innerHTML = `
+    <div class="card">
+      <h3>Training Status</h3>
+      <div class="value ${status.cls}">${status.label}</div>
+      <div class="hint">${status.desc}</div>
+    </div>
     <div class="card"><h3>CTL</h3><div class="value positive">${formatNum(summary.ctl)}</div></div>
     <div class="card"><h3>ATL</h3><div class="value negative">${formatNum(summary.atl)}</div></div>
     <div class="card"><h3>TSB</h3><div class="value ${summary.tsb >= 0 ? 'positive' : 'negative'}">${formatNum(summary.tsb)}</div></div>
@@ -102,7 +158,16 @@ async function renderTSS() {
         { label: 'TSB', data: tsbData, borderColor: '#d29922', borderDash: [5,5], tension: 0.3, pointRadius: 0 }
       ]
     },
-    options: commonOpts()
+    options: {
+      ...commonOpts(),
+      plugins: {
+        ...commonOpts().plugins,
+        legend: { labels: { color: '#c9d1d9' } }
+      },
+      /* Reserve extra right margin for zone labels */
+      layout: { padding: { right: 70 } }
+    },
+    plugins: [fatigueZonePlugin]
   });
 
   chartInstances.tss = new Chart(document.getElementById('tssChart'), {
@@ -125,19 +190,16 @@ async function renderMuscle() {
     document.getElementById('summary-cards-muscle').innerHTML = '';
     document.getElementById('alerts-muscle').innerHTML =
       '<div class="alert info">Select an exercise above to view muscle dynamics.</div>';
-    document.getElementById('plateau-section').querySelector('tbody').innerHTML = '';
+    document.querySelector('#plateau-section tbody').innerHTML = '';
+    document.querySelector('#plateau-section tr.empty-msg')?.remove();
     destroyCharts(['muscle', 'rm']);
-    /* Show empty charts */
     const opts = commonOpts();
     ['muscleChart', 'rmChart'].forEach(id => {
       const el = document.getElementById(id);
-      if (chartInstances[id.replace('Chart', '')]) {
-        chartInstances[id.replace('Chart', '')].destroy();
-      }
-      chartInstances[id.replace('Chart', '')] = new Chart(el, {
-        type: 'line',
-        data: { labels: [], datasets: [] },
-        options: opts
+      const key = id.replace('Chart', '');
+      if (chartInstances[key]) chartInstances[key].destroy();
+      chartInstances[key] = new Chart(el, {
+        type: 'line', data: { labels: [], datasets: [] }, options: opts
       });
     });
     return;
@@ -205,7 +267,11 @@ async function renderMuscle() {
   });
 
   /* Plateau events table */
+  const thead = document.querySelector('#plateau-table thead');
   const tbody = document.querySelector('#plateau-table tbody');
+  /* Remove old empty-row message if any */
+  tbody.querySelector('tr.empty-msg')?.remove();
+
   const plateauRows = [];
   for (let i = 0; i < timeline.length; i++) {
     if (timeline[i].plateau_hit) {
@@ -213,9 +279,16 @@ async function renderMuscle() {
       plateauRows.push({ day_key: timeline[i].day_key, old_mult: prev, new_mult: timeline[i].weight_mult });
     }
   }
-  tbody.innerHTML = plateauRows.map(p =>
-    `<tr><td>${p.day_key}</td><td>${formatNum(p.old_mult, 3)}</td><td>${formatNum(p.new_mult, 3)}</td></tr>`
-  ).join('');
+
+  if (plateauRows.length === 0) {
+    thead.style.display = 'none';
+    tbody.innerHTML = '<tr class="empty-msg"><td colspan="3" style="color:#8b949e;text-align:center;padding:16px;">No plateau events for this exercise in the selected range.</td></tr>';
+  } else {
+    thead.style.display = '';
+    tbody.innerHTML = plateauRows.map(p =>
+      `<tr><td>${p.day_key}</td><td>${formatNum(p.old_mult, 3)}</td><td>${formatNum(p.new_mult, 3)}</td></tr>`
+    ).join('');
+  }
 }
 
 /* ════════════════════════════════════════════════════

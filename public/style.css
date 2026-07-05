@@ -158,6 +158,11 @@ h1 {
 .card .value.negative { color: #f85149; }
 .card .value.neutral { color: #d29922; }
 
+.card .value.productive { color: #3fb950; }
+.card .value.strained { color: #d29922; }
+.card .value.overtrain { color: #f85149; }
+.card .value.detrain { color: #58a6ff; }
+
 .card .hint {
   font-size: 0.7rem;
   color: #8b949e;
