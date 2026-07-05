@@ -298,8 +298,9 @@ async function renderMuscle() {
   document.getElementById('alerts-muscle').innerHTML = '';
 
   const labels = timeline.map(d => d.day_key);
-  const rm1Data = timeline.map(d => d.rm1_predicted > 0 ? d.rm1_predicted : null);
-  const prActualData = timeline.map(d => d.pr_actual);
+  const repSuffix = ` (${cardReps}RM)`;
+  const rm1Data = timeline.map(d => d.rm1_predicted > 0 ? convert1RMToWeight(d.rm1_predicted, cardReps) : null);
+  const prActualData = timeline.map(d => d.pr_actual > 0 ? convert1RMToWeight(d.pr_actual, cardReps) : null);
 
   destroyCharts(['rm']);
 
@@ -308,8 +309,8 @@ async function renderMuscle() {
     data: {
       labels,
       datasets: [
-        { label: `PR dự kiến (${exerciseLabel})`, data: rm1Data, borderColor: '#bc8cff', tension: 0.3, pointRadius: 0, spanGaps: false },
-        { label: `PR thực tế (${exerciseLabel})`, data: prActualData, borderColor: '#3fb950', backgroundColor: '#3fb950', showLine: false, pointRadius: 4, pointHoverRadius: 7 }
+        { label: `PR dự kiến${repSuffix} (${exerciseLabel})`, data: rm1Data, borderColor: '#bc8cff', tension: 0.3, pointRadius: 0, spanGaps: false },
+        { label: `PR thực tế${repSuffix} (${exerciseLabel})`, data: prActualData, borderColor: '#3fb950', backgroundColor: '#3fb950', showLine: false, pointRadius: 4, pointHoverRadius: 7 }
       ]
     },
     options: commonOpts()
