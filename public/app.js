@@ -189,6 +189,7 @@ async function renderMuscle() {
     document.getElementById('summary-cards-muscle').innerHTML = '';
     document.getElementById('alerts-muscle').innerHTML =
       '<div class="alert info">Select an exercise above to view muscle dynamics.</div>';
+    document.querySelector('#daily-detail-table tbody').innerHTML = '';
     document.querySelector('#plateau-section tbody').innerHTML = '';
     document.querySelector('#plateau-section tr.empty-msg')?.remove();
     destroyCharts(['muscle', 'rm']);
@@ -255,6 +256,34 @@ async function renderMuscle() {
     },
     options: commonOpts()
   });
+
+  /* Daily detail table */
+  const detailTbody = document.querySelector('#daily-detail-table tbody');
+  if (!timeline || timeline.length === 0) {
+    detailTbody.innerHTML = '<tr class="empty-msg"><td colspan="7" style="color:#8b949e;text-align:center;padding:16px;">No data.</td></tr>';
+  } else {
+    let rows = '';
+    for (let i = 0; i < timeline.length; i++) {
+      const d = timeline[i];
+      const prev = i > 0 ? timeline[i - 1] : null;
+      const netGain = d.anabolism - d.catabolism;
+      const newMuscle = prev ? d.m - prev.m : 0;
+      const newPR = prev ? d.pr - prev.pr : 0;
+      const netCls = netGain > 0 ? 'pos' : netGain < 0 ? 'neg' : '';
+      const nmCls = newMuscle > 0 ? 'pos' : newMuscle < 0 ? 'neg' : '';
+      const nprCls = newPR > 0 ? 'pos' : newPR < 0 ? 'neg' : '';
+      rows += `<tr>
+        <td>${d.day_key}</td>
+        <td class="num">${formatNum(d.anabolism, 5)}</td>
+        <td class="num">${formatNum(d.catabolism, 5)}</td>
+        <td class="num ${netCls}">${formatNum(netGain, 5)}</td>
+        <td class="num ${nmCls}">${formatNum(newMuscle, 5)}</td>
+        <td class="num ${nprCls}">${formatNum(newPR, 1)}</td>
+        <td class="num">${formatNum(d.pr, 1)}</td>
+      </tr>`;
+    }
+    detailTbody.innerHTML = rows;
+  }
 
   /* Plateau events table */
   const thead = document.querySelector('#plateau-table thead');

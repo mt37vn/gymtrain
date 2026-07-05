@@ -219,6 +219,64 @@ canvas {
   width: 100% !important;
 }
 
+/* ---- Daily detail table ---- */
+#daily-detail-section {
+  margin-bottom: 24px;
+}
+
+#daily-detail-section h2 {
+  font-size: 1rem;
+  margin-bottom: 12px;
+  color: #c9d1d9;
+}
+
+.table-scroll {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+}
+
+.table-scroll table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.table-scroll thead {
+  position: sticky;
+  top: 0;
+  background: #161b22;
+  z-index: 1;
+}
+
+.table-scroll th, .table-scroll td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid #21262d;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.table-scroll th {
+  color: #8b949e;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  background: #161b22;
+}
+
+.table-scroll td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.table-scroll td.pos { color: #3fb950; }
+.table-scroll td.neg { color: #f85149; }
+
+.table-scroll tr:hover {
+  background: #1c2128;
+}
+
 /* ---- Plateau table ---- */
 #plateau-section {
   margin-bottom: 24px;
