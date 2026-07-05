@@ -328,9 +328,124 @@ function switchTab(tabId) {
 
   if (tabId === 'tss') {
     renderTSS();
-  } else {
+  } else if (tabId === 'muscle') {
     renderMuscle();
+  } else if (tabId === 'settings') {
+    renderSettings();
   }
+}
+
+/* ════════════════════════════════════════════════════
+   TAB: Settings
+   ════════════════════════════════════════════════════ */
+
+const PARAM_DEFS = [
+  { key: 'tau_ctl_days',       label: 'Fitness Time Constant (τ CTL)',   desc: 'Days for long-term fitness averaging.',      group: 'Neural Fatigue (TSS)', min: 7, max: 120, step: 1 },
+  { key: 'tau_atl_days',       label: 'Fatigue Time Constant (τ ATL)',   desc: 'Days for short-term fatigue averaging.',     group: 'Neural Fatigue (TSS)', min: 3, max: 28, step: 1 },
+  { key: 'm_max_cap',          label: 'Max Meaningful Reps (M_max)',     desc: 'Max reps before set is beyond failure.',     group: 'Neural Fatigue (TSS)', min: 10, max: 100, step: 1 },
+  { key: 'k_failure',          label: 'Failure Penalty (k_failure)',     desc: 'Multiplier for reps exceeding M_max.',       group: 'Neural Fatigue (TSS)', min: 1, max: 5, step: 0.1 },
+  { key: 'lambda_base',        label: 'Base Catabolism Rate (λ_base)',   desc: 'Daily muscle loss at rest (fraction).',      group: 'Muscle Dynamics',     min: 0.0001, max: 0.01, step: 0.0001, fmt: '0.0000' },
+  { key: 'lambda_max',         label: 'Max Catabolism Rate (λ_max)',     desc: 'Max muscle loss under high TSS (fraction).', group: 'Muscle Dynamics',     min: 0.0001, max: 0.02, step: 0.0001, fmt: '0.0000' },
+  { key: 'tss_crit',           label: 'Critical TSS (TSS_crit)',         desc: 'Daily TSS where catabolism peaks.',          group: 'Muscle Dynamics',     min: 10, max: 1000, step: 1 },
+  { key: 'a_max',              label: 'Max Anabolism Rate (A_max)',      desc: 'Ceiling on daily muscle building.',          group: 'Muscle Dynamics',     min: 0.0001, max: 0.02, step: 0.0001, fmt: '0.0000' },
+  { key: 'k_anabolic',         label: 'Anabolic Impulse Coeff (k)',      desc: 'Stimulus per set. Higher = faster gains.',   group: 'Muscle Dynamics',     min: 0.00001, max: 0.01, step: 0.00001, fmt: '0.00000' },
+  { key: 'alpha_intensity',    label: 'Intensity Exponent (α)',          desc: 'Sensitivity to weight/PR ratio.',            group: 'Muscle Dynamics',     min: 1, max: 20, step: 0.5 },
+  { key: 'm_min',              label: 'Minimum M (M_min)',               desc: 'Floor for M (muscle memory).',               group: 'Muscle Dynamics',     min: 0.001, max: 0.5, step: 0.001, fmt: '0.000' },
+  { key: 'pr_window_days',     label: 'PR Rolling Window',               desc: 'Days to look back for PR computation.',      group: 'PR & Detraining',     min: 7, max: 365, step: 1 },
+  { key: 'grace_days',         label: 'Detraining Grace (days)',         desc: 'Days before 1RM decay starts.',              group: 'PR & Detraining',     min: 0, max: 60, step: 1 },
+  { key: 'tau_decay_days',     label: 'Decay Time Constant (τ_decay)',   desc: 'Time constant for 1RM exponential decay.',   group: 'PR & Detraining',     min: 7, max: 365, step: 1 },
+  { key: 'floor_rm',           label: 'Floor RM Ratio',                   desc: 'Fraction of peak 1RM never lost.',           group: 'PR & Detraining',     min: 0.3, max: 0.95, step: 0.01, fmt: '0.00' }
+];
+
+function buildParamField(def, currentVal) {
+  const decPlaces = def.step < 1 ? (def.fmt ? def.fmt.split('.')[1].length : 4) : 0;
+  const valStr = Number(currentVal).toFixed(decPlaces);
+  return `
+    <div class="param-row">
+      <div class="param-info">
+        <span class="param-label">${def.label}</span>
+        <span class="param-desc">${def.desc}</span>
+      </div>
+      <div class="param-controls">
+        <input type="range" class="param-slider" data-key="${def.key}"
+               min="${def.min}" max="${def.max}" step="${def.step}"
+               value="${currentVal}">
+        <input type="number" class="param-number" data-key="${def.key}"
+               min="${def.min}" max="${def.max}" step="${def.step}"
+               value="${valStr}">
+      </div>
+    </div>`;
+}
+
+function buildGroupHeading(group) {
+  return `<h3 class="param-group-heading">${group}</h3>`;
+}
+
+async function renderSettings() {
+  const params = await fetchJSON('/api/params');
+  let html = '';
+  let currentGroup = '';
+
+  for (const def of PARAM_DEFS) {
+    if (def.group !== currentGroup) {
+      currentGroup = def.group;
+      html += buildGroupHeading(currentGroup);
+    }
+    html += buildParamField(def, params[def.key]);
+  }
+
+  document.getElementById('params-form').innerHTML = html;
+  document.getElementById('params-status').innerHTML = '';
+
+  document.querySelectorAll('.param-slider').forEach(slider => {
+    slider.addEventListener('input', () => {
+      const num = document.querySelector(`.param-number[data-key="${slider.dataset.key}"]`);
+      if (num) {
+        const def = PARAM_DEFS.find(d => d.key === slider.dataset.key);
+        const dp = def && def.step < 1 ? (def.fmt ? def.fmt.split('.')[1].length : 4) : 0;
+        num.value = Number(slider.value).toFixed(dp);
+      }
+    });
+  });
+  document.querySelectorAll('.param-number').forEach(num => {
+    num.addEventListener('input', () => {
+      const slider = document.querySelector(`.param-slider[data-key="${num.dataset.key}"]`);
+      if (slider) {
+        const v = parseFloat(num.value);
+        if (!isNaN(v) && v >= parseFloat(slider.min) && v <= parseFloat(slider.max)) {
+          slider.value = v;
+        }
+      }
+    });
+  });
+
+  document.getElementById('btn-save-params').onclick = async () => {
+    const updates = {};
+    document.querySelectorAll('.param-slider').forEach(s => {
+      updates[s.dataset.key] = parseFloat(s.value);
+    });
+    try {
+      const res = await fetch('/api/params', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
+      await res.json();
+      document.getElementById('params-status').innerHTML =
+        '<div class="alert info">Parameters saved to params.json. Restart the server for changes to take effect.</div>';
+    } catch (e) {
+      document.getElementById('params-status').innerHTML =
+        `<div class="alert deload">Error saving: ${e.message}</div>`;
+    }
+  };
+
+  document.getElementById('btn-reset-params').onclick = async () => {
+    try {
+      await fetch('/api/params/reset', { method: 'POST' });
+      renderSettings();
+      document.getElementById('params-status').innerHTML =
+        '<div class="alert info">Parameters restored to defaults.</div>';
+    } catch (e) {
+      document.getElementById('params-status').innerHTML =
+        `<div class="alert deload">Error: ${e.message}</div>`;
+    }
+  };
 }
 
 /* ════════════════════════════════════════════════════

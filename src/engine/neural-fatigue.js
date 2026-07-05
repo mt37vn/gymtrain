@@ -1,32 +1,30 @@
-const ALPHA_CTL = 1 - Math.exp(-1 / 42);
-const ALPHA_ATL = 1 - Math.exp(-1 / 7);
-const M_MAX_CAP = 40;
-
-function computeSetTSS(weight, reps, rm1Pred) {
+function computeSetTSS(weight, reps, rm1Pred, params) {
   if (rm1Pred <= 0 || weight <= 0 || reps <= 0) return 0;
 
   const ratio = rm1Pred / weight;
   let M_max = 30 * (ratio - 1);
-  M_max = Math.min(M_max, M_MAX_CAP);
+  M_max = Math.min(M_max, params.m_max_cap);
   if (M_max <= 0) return 0;
 
   if (reps <= M_max) {
     return weight * (reps / M_max);
   }
-  return weight * (1 + 2 * (reps - M_max) / M_max);
+  return weight * (1 + params.k_failure * (reps - M_max) / M_max);
 }
 
-function computeDailyTSS(sets, rm1Pred) {
+function computeDailyTSS(sets, rm1Pred, params) {
   if (!sets || sets.length === 0) return 0;
-  return sets.reduce((sum, set) => sum + computeSetTSS(set.weight, set.reps, rm1Pred), 0);
+  return sets.reduce((sum, set) => sum + computeSetTSS(set.weight, set.reps, rm1Pred, params), 0);
 }
 
-function computeCTL(prevCTL, dailyTSS) {
-  return prevCTL + ALPHA_CTL * (dailyTSS - prevCTL);
+function computeCTL(prevCTL, dailyTSS, params) {
+  const alphaCTL = 1 - Math.exp(-1 / params.tau_ctl_days);
+  return prevCTL + alphaCTL * (dailyTSS - prevCTL);
 }
 
-function computeATL(prevATL, dailyTSS) {
-  return prevATL + ALPHA_ATL * (dailyTSS - prevATL);
+function computeATL(prevATL, dailyTSS, params) {
+  const alphaATL = 1 - Math.exp(-1 / params.tau_atl_days);
+  return prevATL + alphaATL * (dailyTSS - prevATL);
 }
 
 function computeTSB(ctl, atl) {
@@ -45,7 +43,5 @@ module.exports = {
   computeCTL,
   computeATL,
   computeTSB,
-  checkDeload,
-  ALPHA_CTL,
-  ALPHA_ATL
+  checkDeload
 };

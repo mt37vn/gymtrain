@@ -4,9 +4,10 @@ const {
   updateM, checkPlateau, compute1RM, computeEpley1RM
 } = require('./muscle-dynamics');
 
-const PR_WINDOW_DAYS = 90;
+const { getParams } = require('../params');
 
 function analyzeExercise(exercise) {
+  const params = getParams();
   const dayKeys = db.getAllDayKeysForExercise(exercise);
   if (dayKeys.length === 0) return [];
 
@@ -22,7 +23,6 @@ function analyzeExercise(exercise) {
   let prevWeightMult = 1.0;
   const mHistory = [];
 
-  /* 90-day sliding window for PR: stores { dayKey, epley } per training day */
   const epleyWindow = [];
 
   for (let i = 0; i < totalDays; i++) {
@@ -32,7 +32,7 @@ function analyzeExercise(exercise) {
     const isTrainingDay = trainingDaySet.has(dayKey);
 
     const dailyTSS = db.getDailyTSSForDay(dayKey);
-    const C = computeCatabolism(prevM, dailyTSS);
+    const C = computeCatabolism(prevM, dailyTSS, params);
 
     let A = 0;
     let sets = [];
@@ -41,11 +41,10 @@ function analyzeExercise(exercise) {
     let plateauHit = 0;
     let currentWeightMult = prevWeightMult;
 
-    /* Compute current PR from the sliding 90-day window */
+    /* Compute current PR from the sliding window */
     const cutoffDate = new Date(currentDate);
-    cutoffDate.setDate(cutoffDate.getDate() - PR_WINDOW_DAYS);
+    cutoffDate.setDate(cutoffDate.getDate() - params.pr_window_days);
     const cutoffKey = cutoffDate.toISOString().slice(0, 10);
-    /* Remove expired entries */
     while (epleyWindow.length > 0 && epleyWindow[0].dayKey < cutoffKey) {
       epleyWindow.shift();
     }
@@ -62,18 +61,17 @@ function analyzeExercise(exercise) {
         return ep > max ? ep : max;
       }, 0);
 
-      /* If no PR in window yet, use today's max as the seed */
       if (currentPR === 0 && maxEpley > 0) {
         currentPR = maxEpley;
       }
 
       if (currentPR > 0) {
-        const S = computeAnabolism(sets, currentPR);
-        A = computeAnabolismA(S, prevM);
+        const S = computeAnabolism(sets, currentPR, params);
+        A = computeAnabolismA(S, prevM, params);
       }
     }
 
-    const newM = updateM(prevM, C, A);
+    const newM = updateM(prevM, C, A, params);
 
     if (isTrainingDay) {
       for (const set of sets) {
@@ -89,7 +87,6 @@ function analyzeExercise(exercise) {
         currentWeightMult = currentWeightMult * 1.05;
       }
 
-      /* Add today's max Epley to the sliding window */
       const todaysMax = sets.reduce((max, s) => {
         const ep = computeEpley1RM(s.weight, s.reps);
         return ep > max ? ep : max;

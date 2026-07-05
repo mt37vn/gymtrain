@@ -6,6 +6,7 @@ const {
   computeAnabolismA, updateM, checkPlateau, compute1RM
 } = require('./muscle-dynamics');
 const db = require('../database');
+const { getParams } = require('../params');
 
 function msToDayKey(ms) {
   return new Date(ms).toISOString().slice(0, 10);
@@ -24,6 +25,8 @@ function daysBetween(d1, d2) {
 }
 
 function runAnalysis() {
+  const params = getParams();
+
   const dayKeys = db.getAllDayKeys();
   if (dayKeys.length === 0) {
     console.log('No data to analyze.');
@@ -82,19 +85,19 @@ function runAnalysis() {
         prevPR = currentPR;
       }
 
-      dailyTSS = computeDailyTSS(sets, prev1RMPred);
+      dailyTSS = computeDailyTSS(sets, prev1RMPred, params);
       if (prev1RMPred <= 0) {
-        dailyTSS = computeDailyTSS(sets, currentPR);
+        dailyTSS = computeDailyTSS(sets, currentPR, params);
       }
 
-      C = computeCatabolism(prevM, dailyTSS);
+      C = computeCatabolism(prevM, dailyTSS, params);
 
       if (currentPR > 0) {
-        S = computeAnabolism(sets, currentPR);
-        A = computeAnabolismA(S, prevM);
+        S = computeAnabolism(sets, currentPR, params);
+        A = computeAnabolismA(S, prevM, params);
       }
 
-      newM = updateM(prevM, C, A);
+      newM = updateM(prevM, C, A, params);
 
       for (const set of sets) {
         const ep = computeEpley1RM(set.weight, set.reps);
@@ -113,8 +116,8 @@ function runAnalysis() {
       new1RMPred = compute1RM(currentPR, newM, currentWeightMult);
 
       deloadWarning = checkDeload(prevCTL, prevATL, prevCTL - prevATL);
-      const newCTL = computeCTL(prevCTL, dailyTSS);
-      const newATL = computeATL(prevATL, dailyTSS);
+      const newCTL = computeCTL(prevCTL, dailyTSS, params);
+      const newATL = computeATL(prevATL, dailyTSS, params);
       const newTSB = computeTSB(newCTL, newATL);
       deloadWarning = checkDeload(newCTL, newATL, newTSB);
 
@@ -144,11 +147,11 @@ function runAnalysis() {
       trainingDayIndex++;
       console.log(`Training ${formatDate(currentDate)}: ${totalSets} sets, TSS=${dailyTSS.toFixed(1)}, CTL=${prevCTL.toFixed(1)}, ATL=${prevATL.toFixed(1)}, TSB=${(prevCTL - prevATL).toFixed(1)}, M=${newM.toFixed(4)}, PR=${currentPR.toFixed(1)}, 1RM_pred=${new1RMPred.toFixed(1)}${plateauHit ? ' PLATEAU!' : ''}${deloadWarning ? ' DELOAD!' : ''}`);
     } else {
-      C = computeCatabolism(prevM, 0);
-      newM = updateM(prevM, C, 0);
+      C = computeCatabolism(prevM, 0, params);
+      newM = updateM(prevM, C, 0, params);
 
-      const newCTL = computeCTL(prevCTL, 0);
-      const newATL = computeATL(prevATL, 0);
+      const newCTL = computeCTL(prevCTL, 0, params);
+      const newATL = computeATL(prevATL, 0, params);
       const newTSB = computeTSB(newCTL, newATL);
 
       db.upsertDailyMetric({

@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../database');
 const { analyzeExercise } = require('../engine/exercise-analyzer');
+const { getParams, saveParams, resetParams } = require('../params');
 
 const router = express.Router();
 
@@ -66,6 +67,20 @@ router.get('/plateaus', (req, res) => {
 router.get('/stats', (req, res) => {
   const stats = db.getAggregateStats();
   res.json(stats);
+});
+
+router.get('/params', (req, res) => {
+  res.json(getParams());
+});
+
+router.put('/params', express.json(), (req, res) => {
+  const saved = saveParams(req.body);
+  res.json(saved);
+});
+
+router.post('/params/reset', (req, res) => {
+  const defaults = resetParams();
+  res.json(defaults);
 });
 
 module.exports = router;

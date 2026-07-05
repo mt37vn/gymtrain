@@ -304,3 +304,136 @@ th {
   font-size: 0.75rem;
   text-transform: uppercase;
 }
+
+/* ---- Settings page ---- */
+#settings-section {
+  max-width: 900px;
+}
+
+.settings-note {
+  color: #8b949e;
+  font-size: 0.85rem;
+  margin-bottom: 24px;
+  padding: 10px 14px;
+  background: #0d1117;
+  border-left: 3px solid #d29922;
+  border-radius: 4px;
+}
+
+.param-group-heading {
+  font-size: 0.85rem;
+  color: #58a6ff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 10px 0 6px;
+  border-bottom: 1px solid #21262d;
+  margin: 20px 0 12px;
+}
+
+.param-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 2px;
+  transition: background 0.15s;
+}
+
+.param-row:hover {
+  background: #161b22;
+}
+
+.param-info {
+  flex: 1;
+  min-width: 0;
+  margin-right: 16px;
+}
+
+.param-label {
+  display: block;
+  font-size: 0.82rem;
+  color: #c9d1d9;
+  font-weight: 500;
+}
+
+.param-desc {
+  display: block;
+  font-size: 0.7rem;
+  color: #8b949e;
+  margin-top: 2px;
+}
+
+.param-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.param-slider {
+  width: 120px;
+  accent-color: #58a6ff;
+}
+
+.param-number {
+  width: 80px;
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.param-number:focus {
+  outline: none;
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 2px rgba(88,166,255,0.2);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #30363d;
+}
+
+.btn-primary {
+  background: #238636;
+  color: #fff;
+  border: 1px solid #2ea043;
+  border-radius: 6px;
+  padding: 8px 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-primary:hover {
+  background: #2ea043;
+}
+
+.btn-secondary {
+  background: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 8px 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-secondary:hover {
+  background: #30363d;
+}
+
+#params-status {
+  margin-top: 16px;
+}

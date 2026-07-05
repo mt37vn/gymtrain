@@ -1,40 +1,33 @@
-const LAMBDA_BASE = 0.001;
-const LAMBDA_MAX = 0.002;
-const TSS_CRIT = 200;
-const A_MAX = 0.002;
-const K = 0.0005;
-const ALPHA = 5;
-const M_MIN = 0.01;
-
 function computeEpley1RM(weight, reps) {
   if (reps <= 0 || weight <= 0) return 0;
   return weight * (1 + reps / 30);
 }
 
-function computeCatabolism(prevM, dailyTSS) {
-  const lambda_cat = LAMBDA_BASE + (LAMBDA_MAX - LAMBDA_BASE) * Math.min(1, dailyTSS / TSS_CRIT);
+function computeCatabolism(prevM, dailyTSS, params) {
+  const lambda_cat = params.lambda_base
+    + (params.lambda_max - params.lambda_base) * Math.min(1, dailyTSS / params.tss_crit);
   return prevM * lambda_cat;
 }
 
-function computeAnabolism(sets, currentPR) {
+function computeAnabolism(sets, currentPR, params) {
   if (!sets || sets.length === 0 || currentPR <= 0) return 0;
 
   let S = 0;
   for (const set of sets) {
     const intensity = set.weight / currentPR;
-    const impulse = K * Math.pow(intensity, ALPHA);
+    const impulse = params.k_anabolic * Math.pow(intensity, params.alpha_intensity);
     S += impulse;
   }
   return S;
 }
 
-function computeAnabolismA(S, prevM) {
+function computeAnabolismA(S, prevM, params) {
   if (prevM <= 0) return 0;
-  return Math.min(A_MAX, S / prevM);
+  return Math.min(params.a_max, S / prevM);
 }
 
-function updateM(prevM, catabolism, anabolismA) {
-  return Math.max(M_MIN, prevM - catabolism + anabolismA);
+function updateM(prevM, catabolism, anabolismA, params) {
+  return Math.max(params.m_min, prevM - catabolism + anabolismA);
 }
 
 function checkPlateau(newM, m7DaysAgo) {
@@ -53,12 +46,5 @@ module.exports = {
   computeAnabolismA,
   updateM,
   checkPlateau,
-  compute1RM,
-  M_MIN,
-  LAMBDA_BASE,
-  LAMBDA_MAX,
-  TSS_CRIT,
-  A_MAX,
-  K,
-  ALPHA
+  compute1RM
 };

@@ -15,6 +15,7 @@
     <nav id="tab-nav">
       <button class="tab-btn active" data-tab="tss">TSS</button>
       <button class="tab-btn" data-tab="muscle">Muscle Dynamic</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
     </nav>
   </header>
   <main>
@@ -101,6 +102,20 @@
           <thead><tr><th>Date</th><th>Old Weight Mult</th><th>New Weight Mult</th></tr></thead>
           <tbody></tbody>
         </table>
+      </section>
+    </div>
+
+    <!-- ============ TAB: Settings ============ -->
+    <div id="tab-settings" class="tab-content">
+      <section id="settings-section">
+        <h2>Model Parameters</h2>
+        <p class="settings-note">Adjust parameters and run a full recalculation. Changes take effect after saving and restarting the server.</p>
+        <div id="params-form"></div>
+        <div class="settings-actions">
+          <button id="btn-save-params" class="btn-primary">Save Parameters</button>
+          <button id="btn-reset-params" class="btn-secondary">Restore Defaults</button>
+        </div>
+        <div id="params-status"></div>
       </section>
     </div>
   </main>
