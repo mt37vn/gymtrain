@@ -11,6 +11,11 @@ const PORT = parseInt(process.env.PORT, 10) || 3000;
 console.log('Initializing database...');
 db.initDatabase();
 
+console.log('Clearing old data...');
+db.getDb().exec('DELETE FROM workout_sets');
+db.getDb().exec('DELETE FROM daily_metrics');
+db.getDb().exec('DELETE FROM plateau_events');
+
 console.log(`Parsing CSV: ${CSV_PATH}`);
 const { sets, skipped } = parseCSV(CSV_PATH);
 console.log(`Parsed ${sets.length} valid sets. Skipped: ${JSON.stringify(skipped)}`);

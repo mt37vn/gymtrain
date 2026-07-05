@@ -1,47 +1,42 @@
-function computeSetTSS(weight, reps, rm1Pred, params) {
+function computeSetTSS(weight, reps, rm1Pred) {
   if (rm1Pred <= 0 || weight <= 0 || reps <= 0) return 0;
-
-  const ratio = rm1Pred / weight;
-  let M_max = 30 * (ratio - 1);
-  M_max = Math.min(M_max, params.m_max_cap);
-  if (M_max <= 0) return 0;
-
-  if (reps <= M_max) {
-    return weight * (reps / M_max);
-  }
-  return weight * (1 + params.k_failure * (reps - M_max) / M_max);
+  if (weight >= rm1Pred) return weight * Math.sqrt(10 / reps);
+  const maxReps = Math.floor(30 * (rm1Pred / weight - 1));
+  if (maxReps < 1) return weight * Math.sqrt(10 / reps);
+  const ratio = Math.min(reps, maxReps) / maxReps;
+  const effReps = Math.min(reps, maxReps);
+  return weight * ratio * Math.sqrt(10 / effReps);
 }
 
-function computeDailyTSS(sets, rm1Pred, params) {
+function computeDailyTSS(sets, getRm1Pred) {
   if (!sets || sets.length === 0) return 0;
-  return sets.reduce((sum, set) => sum + computeSetTSS(set.weight, set.reps, rm1Pred, params), 0);
+  let total = 0;
+  for (const set of sets) {
+    const rm1 = getRm1Pred(set.exercise);
+    total += computeSetTSS(set.weight, set.reps, rm1);
+  }
+  return total;
 }
 
-function computeCTL(prevCTL, dailyTSS, params) {
-  const alphaCTL = 1 - Math.exp(-1 / params.tau_ctl_days);
-  return prevCTL + alphaCTL * (dailyTSS - prevCTL);
+function computeSMA(values, window) {
+  if (!values || values.length === 0) return 0;
+  const count = Math.min(values.length, window);
+  const slice = values.slice(values.length - count);
+  return slice.reduce((a, b) => a + b, 0) / count;
 }
 
-function computeATL(prevATL, dailyTSS, params) {
-  const alphaATL = 1 - Math.exp(-1 / params.tau_atl_days);
-  return prevATL + alphaATL * (dailyTSS - prevATL);
-}
-
-function computeTSB(ctl, atl) {
-  return ctl - atl;
-}
-
-function checkDeload(ctl, atl, tsb) {
-  if (ctl > 0 && tsb < -0.25 * ctl) return 1;
-  if (tsb < -50) return 1;
+function checkDeload(fitness, fatigue, thresholdPct) {
+  if (fitness <= 0) return 0;
+  const tsb = fitness - fatigue;
+  const th = (thresholdPct || -20) / 100;
+  if (tsb < th * fitness) return 1;
+  if (tsb < -30) return 1;
   return 0;
 }
 
 module.exports = {
   computeSetTSS,
   computeDailyTSS,
-  computeCTL,
-  computeATL,
-  computeTSB,
+  computeSMA,
   checkDeload
 };

@@ -1,17 +1,12 @@
 {
-  "tau_ctl_days": 42,
-  "tau_atl_days": 7,
-  "m_max_cap": 40,
-  "k_failure": 2.0,
-  "lambda_base": 0.001,
-  "lambda_max": 0.002,
-  "tss_crit": 200,
-  "a_max": 0.002,
-  "k_anabolic": 0.0005,
-  "alpha_intensity": 5,
-  "m_min": 0.01,
-  "pr_window_days": 90,
-  "grace_days": 14,
-  "tau_decay_days": 90,
-  "floor_rm": 0.7
+  "fitness_window_days": 42,
+  "fatigue_window_days": 7,
+  "rir_threshold": 3,
+  "effective_window_days": 3,
+  "growth_per_set": 0.001,
+  "max_growth_per_day": 0.003,
+  "decay_per_day": 0.001,
+  "peak_floor_ratio": 0.7,
+  "detrain_threshold": 20,
+  "overtrain_threshold": -20
 }

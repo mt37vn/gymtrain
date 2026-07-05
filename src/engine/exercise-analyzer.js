@@ -1,13 +1,29 @@
 const db = require('../database');
-const {
-  computeCatabolism, computeAnabolism, computeAnabolismA,
-  updateM, checkPlateau, compute1RM, computeEpley1RM
-} = require('./muscle-dynamics');
-
+const { computeEpley1RM } = require('./muscle-dynamics');
 const { getParams } = require('../params');
+
+function countEffectiveSets(sets, pre, rirThreshold) {
+  if (pre <= 0) return 0;
+  let count = 0;
+  for (const s of sets) {
+    if (s.weight <= 0 || s.reps <= 0) continue;
+    const maxReps = Math.floor(30 * (pre / s.weight - 1));
+    if (maxReps < 1) { count++; continue; }
+    const rir = maxReps - s.reps;
+    if (rir <= rirThreshold) count++;
+  }
+  return count;
+}
 
 function analyzeExercise(exercise) {
   const params = getParams();
+  const RIR = params.rir_threshold || 3;
+  const WIN = params.effective_window_days || 3;
+  const G_SET = params.growth_per_set || 0.001;
+  const G_MAX = params.max_growth_per_day || 0.003;
+  const DECAY = params.decay_per_day || 0.001;
+  const FLOOR = params.peak_floor_ratio || 0.7;
+
   const dayKeys = db.getAllDayKeysForExercise(exercise);
   if (dayKeys.length === 0) return [];
 
@@ -19,11 +35,9 @@ function analyzeExercise(exercise) {
   const trainingDaySet = new Set(dayKeys.map(d => d.day_key));
   const results = [];
 
-  let prevM = 1.0;
-  let prevWeightMult = 1.0;
-  const mHistory = [];
-
-  const epleyWindow = [];
+  let prevPRe = 0;
+  let peakPR = 0;
+  const effectiveHistory = new Array(WIN + 1).fill(0);
 
   for (let i = 0; i < totalDays; i++) {
     const currentDate = new Date(firstDate);
@@ -31,89 +45,72 @@ function analyzeExercise(exercise) {
     const dayKey = currentDate.toISOString().slice(0, 10);
     const isTrainingDay = trainingDaySet.has(dayKey);
 
-    const dailyTSS = db.getDailyTSSForDay(dayKey);
-    const C = computeCatabolism(prevM, dailyTSS, params);
+    effectiveHistory.unshift(0);
+    effectiveHistory.length = WIN + 1;
 
-    let A = 0;
     let sets = [];
     let totalSets = 0;
-    let currentPR = 0;
-    let plateauHit = 0;
-    let currentWeightMult = prevWeightMult;
-
-    /* Compute current PR from the sliding window */
-    const cutoffDate = new Date(currentDate);
-    cutoffDate.setDate(cutoffDate.getDate() - params.pr_window_days);
-    const cutoffKey = cutoffDate.toISOString().slice(0, 10);
-    while (epleyWindow.length > 0 && epleyWindow[0].dayKey < cutoffKey) {
-      epleyWindow.shift();
-    }
-    currentPR = epleyWindow.length > 0
-      ? Math.max(...epleyWindow.map(e => e.epley))
-      : 0;
+    let effectiveSetsToday = 0;
+    let prActual = 0;
+    let newPRe = prevPRe;
 
     if (isTrainingDay) {
       sets = db.getSetsByDayAndExercise(dayKey, exercise);
       totalSets = sets.length;
 
-      const maxEpley = sets.reduce((max, s) => {
+      effectiveSetsToday = countEffectiveSets(sets, prevPRe, RIR);
+      effectiveHistory[0] = effectiveSetsToday;
+
+      prActual = sets.reduce((max, s) => {
         const ep = computeEpley1RM(s.weight, s.reps);
         return ep > max ? ep : max;
       }, 0);
-
-      if (currentPR === 0 && maxEpley > 0) {
-        currentPR = maxEpley;
-      }
-
-      if (currentPR > 0) {
-        const S = computeAnabolism(sets, currentPR, params);
-        A = computeAnabolismA(S, prevM, params);
-      }
     }
 
-    const newM = updateM(prevM, C, A, params);
+    const sumPast = effectiveHistory.slice(1, WIN + 1).reduce((a, b) => a + b, 0);
+    const growthRate = Math.min(G_MAX, sumPast * G_SET);
+    const netRate = growthRate - DECAY;
 
-    if (isTrainingDay) {
-      for (const set of sets) {
-        const ep = computeEpley1RM(set.weight, set.reps);
-        if (ep > currentPR) {
-          currentPR = ep;
-        }
-      }
-
-      const m7ago = mHistory[mHistory.length - 7] ?? null;
-      if (checkPlateau(newM, m7ago)) {
-        plateauHit = 1;
-        currentWeightMult = currentWeightMult * 1.05;
-      }
-
-      const todaysMax = sets.reduce((max, s) => {
-        const ep = computeEpley1RM(s.weight, s.reps);
-        return ep > max ? ep : max;
-      }, 0);
-      if (todaysMax > 0) {
-        epleyWindow.push({ dayKey, epley: todaysMax });
-      }
+    if (prevPRe > 0) {
+      const floorPR = peakPR * FLOOR;
+      newPRe = Math.max(floorPR, prevPRe * (1 + netRate));
     }
 
-    const rm1Pred = compute1RM(currentPR, newM, currentWeightMult);
+    if (prActual > 0 && (prevPRe === 0 || prActual > newPRe)) {
+      newPRe = prActual;
+    }
+
+    if (newPRe > peakPR) peakPR = newPRe;
+
+    if (prevPRe === 0 && prActual > 0) {
+      newPRe = prActual;
+      peakPR = prActual;
+    }
 
     results.push({
       day_key: dayKey,
-      daily_tss: dailyTSS,
-      m: newM,
-      pr: currentPR,
-      weight_mult: currentWeightMult,
-      rm1_predicted: rm1Pred,
-      plateau_hit: plateauHit,
-      anabolism: A,
-      catabolism: C,
-      total_sets: totalSets
+      daily_tss: 0,
+      ctl: 0,
+      atl: 0,
+      tsb: 0,
+      m: 1.0,
+      pr: newPRe,
+      pr_actual: isTrainingDay ? prActual : null,
+      weight_mult: 1.0,
+      rm1_predicted: newPRe,
+      plateau_hit: 0,
+      anabolism: effectiveSetsToday,
+      catabolism: peakPR,
+      total_sets: totalSets,
+      daily_change_pct: (prevPRe > 0) ? (growthRate - DECAY) * 100 : 0,
+      growth_type: (prActual > prevPRe && prevPRe > 0) ? 'correction' : (growthRate > 0 ? 'growth' : 'decay'),
+      growth_pct: growthRate * 100,
+      decay_pct: DECAY * 100,
+      net_pct: netRate * 100,
+      effective_sets: effectiveSetsToday
     });
 
-    mHistory.push(newM);
-    prevM = newM;
-    prevWeightMult = currentWeightMult;
+    prevPRe = newPRe;
   }
 
   return results;

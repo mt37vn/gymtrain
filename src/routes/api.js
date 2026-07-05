@@ -5,7 +5,10 @@ const { getParams, saveParams, resetParams } = require('../params');
 
 const router = express.Router();
 
-function applyDayRange(metrics, days) {
+function applyDayRange(metrics, days, from, to) {
+  if (from && to) {
+    return metrics.filter(m => m.day_key >= from && m.day_key <= to);
+  }
   if (!days) return metrics;
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - parseInt(days, 10));
@@ -16,10 +19,12 @@ function applyDayRange(metrics, days) {
 router.get('/summary', (req, res) => {
   const exercise = req.query.exercise;
   const days = req.query.days;
+  const from = req.query.from;
+  const to = req.query.to;
 
   if (exercise) {
     const timeline = analyzeExercise(exercise);
-    const filtered = days ? applyDayRange(timeline, days) : timeline;
+    const filtered = applyDayRange(timeline, days, from, to);
     if (filtered.length === 0) return res.json({ error: 'No data for this exercise' });
     return res.json(filtered[filtered.length - 1]);
   }
@@ -27,9 +32,9 @@ router.get('/summary', (req, res) => {
   let latest = db.getLatestMetric();
   if (!latest) return res.json({ error: 'No data' });
 
-  if (days) {
+  if (days || (from && to)) {
     const metrics = db.getAllDailyMetrics();
-    const filtered = applyDayRange(metrics, days);
+    const filtered = applyDayRange(metrics, days, from, to);
     if (filtered.length > 0) {
       latest = filtered[filtered.length - 1];
     }
@@ -40,6 +45,8 @@ router.get('/summary', (req, res) => {
 router.get('/timeline', (req, res) => {
   const exercise = req.query.exercise;
   const days = req.query.days;
+  const from = req.query.from;
+  const to = req.query.to;
 
   let metrics;
   if (exercise) {
@@ -48,9 +55,7 @@ router.get('/timeline', (req, res) => {
     metrics = db.getAllDailyMetrics();
   }
 
-  if (days) {
-    metrics = applyDayRange(metrics, days);
-  }
+  metrics = applyDayRange(metrics, days, from, to);
   res.json(metrics);
 });
 
@@ -67,6 +72,14 @@ router.get('/plateaus', (req, res) => {
 router.get('/stats', (req, res) => {
   const stats = db.getAggregateStats();
   res.json(stats);
+});
+
+router.get('/tss-breakdown', (req, res) => {
+  const from = req.query.from;
+  const to = req.query.to;
+  if (!from || !to) return res.json([]);
+  const rows = db.getTSSBreakdown(from, to);
+  res.json(rows);
 });
 
 router.get('/params', (req, res) => {

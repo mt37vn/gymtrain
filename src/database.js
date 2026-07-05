@@ -49,6 +49,14 @@ function initDatabase() {
       old_mult    REAL,
       new_mult    REAL
     );
+
+    CREATE TABLE IF NOT EXISTS tss_breakdown (
+      day_key     TEXT NOT NULL,
+      exercise    TEXT NOT NULL,
+      tss         REAL DEFAULT 0,
+      sets        INTEGER DEFAULT 0,
+      PRIMARY KEY (day_key, exercise)
+    );
   `);
 
   return db;
@@ -138,6 +146,11 @@ function getDailyTSSForDay(dayKey) {
   return row ? row.daily_tss : 0;
 }
 
+function getDailyMetricsForDay(dayKey) {
+  const row = db.prepare('SELECT daily_tss, ctl, atl, tsb, anabolism FROM daily_metrics WHERE day_key = ?').get(dayKey);
+  return row || { daily_tss: 0, ctl: 0, atl: 0, tsb: 0, anabolism: 0 };
+}
+
 function getLatestMetric() {
   return db.prepare('SELECT * FROM daily_metrics ORDER BY day_key DESC LIMIT 1').get();
 }
@@ -151,6 +164,21 @@ function getAggregateStats() {
   const totalDays = db.prepare('SELECT COUNT(*) as count FROM daily_metrics').get();
   const latest = getLatestMetric();
   return { totalSets: totalRows.count, totalDays: totalDays.count, latest };
+}
+
+function upsertTSSBreakdown(dayKey, exercise, tss, sets) {
+  const stmt = db.prepare(`
+    INSERT INTO tss_breakdown (day_key, exercise, tss, sets)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(day_key, exercise) DO UPDATE SET
+      tss = excluded.tss,
+      sets = excluded.sets
+  `);
+  stmt.run(dayKey, exercise, tss, sets);
+}
+
+function getTSSBreakdown(fromKey, toKey) {
+  return db.prepare('SELECT * FROM tss_breakdown WHERE day_key >= ? AND day_key <= ? ORDER BY day_key, exercise').all(fromKey, toKey);
 }
 
 function getFirstAndLastDay() {
@@ -181,10 +209,13 @@ module.exports = {
   getAllDailyMetrics,
   getMetricsByDayRange,
   getDailyTSSForDay,
+  getDailyMetricsForDay,
   getLatestMetric,
   getAllPlateauEvents,
   getAggregateStats,
   getFirstAndLastDay,
   closeDatabase,
-  getDb
+  getDb,
+  upsertTSSBreakdown,
+  getTSSBreakdown
 };

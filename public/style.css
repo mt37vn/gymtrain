@@ -169,6 +169,34 @@ h1 {
   margin-top: 4px;
 }
 
+.card-calc .calc-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.card-calc .calc-inline-row label {
+  font-size: 0.85rem;
+  color: #c9d1d9;
+}
+
+.card-calc .calc-inline-row input[type="number"] {
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  width: 70px;
+  margin-left: 4px;
+}
+
+.card-calc .calc-inline-row input[type="number"]:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+
 /* ---- Alerts ---- */
 #alerts-tss, #alerts-muscle {
   margin-bottom: 24px;
@@ -197,6 +225,12 @@ h1 {
   background: #0c2d6b;
   border: 1px solid #58a6ff;
   color: #58a6ff;
+}
+
+.alert.recommend {
+  background: #1a3d00;
+  border: 1px solid #3fb950;
+  color: #3fb950;
 }
 
 /* ---- Charts ---- */
@@ -437,3 +471,69 @@ th {
 #params-status {
   margin-top: 16px;
 }
+
+/* ---- Legend bar ---- */
+.legend-bar {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-size: 0.75rem;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #c9d1d9;
+}
+.legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+.legend-swatch.detrain { background: rgba(139,148,158,0.45); }
+.legend-swatch.deload { background: rgba(88,166,255,0.45); }
+.legend-swatch.productive { background: rgba(63,185,80,0.45); }
+.legend-swatch.overtrain { background: rgba(248,81,73,0.45); }
+
+/* ---- Date range group ---- */
+.date-range-group {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+/* ---- Date inputs ---- */
+.control-group input[type="date"] {
+  background: #161b22;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  min-width: 150px;
+}
+
+.control-group input[type="date"]:hover {
+  border-color: #58a6ff;
+}
+
+.control-group input[type="date"]:focus {
+  outline: none;
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 2px rgba(88,166,255,0.2);
+}
+
+/* ---- TSS breakdown ---- */
+#tss-breakdown-section {
+  margin-bottom: 24px;
+}
+
+#tss-breakdown-section h2 {
+  font-size: 1rem;
+  margin-bottom: 12px;
+  color: #c9d1d9;
+}
+
+

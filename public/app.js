@@ -10,23 +10,44 @@ function formatNum(v, d) {
   return Number(v).toFixed(d);
 }
 
-function getSelectedDays(selId) {
-  const val = document.getElementById(selId || 'time-range').value;
-  if (!val) return '';
+function computeWeightRIR3(pre, reps) {
+  return Math.ceil(pre * 30 / (34 + reps) * 10) / 10;
+}
+function computeWeightRIR0(pre, reps) {
+  return Math.floor(pre * 30 / (30 + reps) * 10) / 10;
+}
+function convert1RMToWeight(rm1, reps) {
+  if (!rm1 || rm1 <= 0 || !reps || reps < 1) return 0;
+  return rm1 * 30 / (30 + reps);
+}
+
+function getTimeRange(prefix) {
+  const selId = prefix === 'muscle' ? 'time-range-2' : 'time-range';
+  const fromId = prefix === 'muscle' ? 'date-from-muscle' : 'date-from-tss';
+  const toId = prefix === 'muscle' ? 'date-to-muscle' : 'date-to-tss';
+
+  const from = document.getElementById(fromId).value;
+  const to = document.getElementById(toId).value;
+  if (from && to) return { days: '', from, to };
+
+  const val = document.getElementById(selId).value;
+  if (!val) return { days: '', from: '', to: '' };
   if (val === 'year') {
     const d = new Date();
     const startOfYear = new Date(d.getFullYear(), 0, 1);
-    return Math.floor((d - startOfYear) / (1000 * 60 * 60 * 24));
+    const days = Math.floor((d - startOfYear) / (1000 * 60 * 60 * 24));
+    return { days: String(days), from: '', to: '' };
   }
-  return val;
+  return { days: val, from: '', to: '' };
 }
 
 /* ─── Training status ─── */
-function trainingStatus(tsb, ctl) {
-  if (ctl <= 0 && tsb === 0) return { label: 'Detrain', cls: 'detrain', desc: 'No training load detected' };
-  if (tsb > 20) return { label: 'Detrain', cls: 'detrain', desc: 'Low training load — consider increasing volume' };
-  if (tsb >= -10) return { label: 'Productive', cls: 'productive', desc: 'Optimal load — good adaptation' };
-  if (tsb >= -30) return { label: 'Strained', cls: 'strained', desc: 'High fatigue — monitor recovery' };
+function trainingStatus(tsb, fitness, detrainTh, overtrainTh) {
+  if (fitness <= 0) return { label: 'Detrain', cls: 'detrain', desc: 'No training load detected' };
+  const tsbPct = (tsb / fitness) * 100;
+  if (tsbPct > (detrainTh || 20)) return { label: 'Detrain', cls: 'detrain', desc: 'Low training load — consider increasing volume' };
+  if (tsbPct >= 0) return { label: 'Deload', cls: 'deload', desc: 'Recovery zone — moderate training recommended' };
+  if (tsbPct >= (overtrainTh || -20)) return { label: 'Productive', cls: 'productive', desc: 'Optimal load — good adaptation' };
   return { label: 'Overtrain', cls: 'overtrain', desc: 'Excessive load — deload strongly recommended' };
 }
 
@@ -46,40 +67,38 @@ function destroyCharts(keys) {
 const fatigueZonePlugin = {
   id: 'fatigueZones',
   beforeDraw(chart) {
-    const { ctx, chartArea: { left, right, top, bottom }, scales: { y } } = chart;
-    if (!y) return;
-    const zones = [
-      { min: -Infinity, max: -30, color: 'rgba(248,81,73,0.08)' },
-      { min: -30, max: -10, color: 'rgba(210,153,34,0.07)' },
-      { min: -10, max: 20, color: 'rgba(63,185,80,0.06)' },
-      { min: 20, max: Infinity, color: 'rgba(88,166,255,0.06)' }
-    ];
-    for (const zone of zones) {
-      const y1 = zone.min === -Infinity ? top : Math.max(top, y.getPixelForValue(zone.min));
-      const y2 = zone.max === Infinity ? bottom : Math.min(bottom, y.getPixelForValue(zone.max));
-      if (y1 < bottom && y2 > top) {
-        ctx.fillStyle = zone.color;
-        ctx.fillRect(left, y2, right - left, y1 - y2);
+    const { ctx, chartArea: { left, right, top, bottom }, scales } = chart;
+    if (!left || !scales) return;
+
+    // Vẽ nền dọc theo training status
+    const pluginOpts = chart.options.plugins && chart.options.plugins.fatigueZones;
+    const statusColors = pluginOpts && pluginOpts.statusColors;
+    if (statusColors && statusColors.length > 1 && scales.x && scales.y) {
+      const { x, y } = scales;
+      const colorMap = {
+        'detrain': 'rgba(139,148,158,0.08)',
+        'deload': 'rgba(88,166,255,0.08)',
+        'productive': 'rgba(63,185,80,0.08)',
+        'overtrain': 'rgba(248,81,73,0.10)'
+      };
+      const dataLen = chart.data.labels.length;
+      ctx.save();
+      for (let i = 0; i < Math.min(statusColors.length - 1, dataLen - 1); i++) {
+        if (!statusColors[i + 1]) continue;
+        const x1 = Math.max(left, x.getPixelForValue(chart.data.labels[i]));
+        const x2 = Math.min(right, x.getPixelForValue(chart.data.labels[i + 1]));
+        if (x2 > x1) {
+          ctx.fillStyle = colorMap[statusColors[i + 1]] || 'transparent';
+          ctx.fillRect(x1, top, x2 - x1, bottom - top);
+        }
       }
-    }
-    /* Zone labels on the right */
-    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.textAlign = 'left';
-    const labels = [
-      { y: -35, text: 'Overtrain', color: '#f85149' },
-      { y: -20, text: 'Strained', color: '#d29922' },
-      { y: 5, text: 'Productive', color: '#3fb950' },
-      { y: 30, text: 'Detrain', color: '#58a6ff' }
-    ];
-    for (const lbl of labels) {
-      const py = Math.max(top + 4, Math.min(bottom - 4, y.getPixelForValue(lbl.y)));
-      ctx.fillStyle = lbl.color;
-      ctx.globalAlpha = 0.5;
-      ctx.fillText(lbl.text, right + 6, py + 3);
-      ctx.globalAlpha = 1;
+      ctx.restore();
     }
   }
 };
+
+// Đăng ký plugin toàn cục để cả TSS tab và Muscle tab đều dùng
+if (typeof Chart !== 'undefined') Chart.register(fatigueZonePlugin);
 
 /* ─── Shared chart options ─── */
 function commonOpts() {
@@ -99,13 +118,15 @@ function commonOpts() {
    TAB: TSS (Global)
    ════════════════════════════════════════════════════ */
 async function renderTSS() {
-  const days = getSelectedDays('time-range');
-  const qs = days ? '?days=' + days : '';
+  const tr = getTimeRange('tss');
+  const qs = tr.from && tr.to ? '?from=' + tr.from + '&to=' + tr.to
+    : tr.days ? '?days=' + tr.days : '';
 
-  const [summary, timeline, stats] = await Promise.all([
+  const [summary, timeline, stats, params] = await Promise.all([
     fetchJSON('/api/summary' + qs),
     fetchJSON('/api/timeline' + qs),
-    fetchJSON('/api/stats')
+    fetchJSON('/api/stats'),
+    fetchJSON('/api/params')
   ]);
 
   if (summary.error) {
@@ -114,11 +135,19 @@ async function renderTSS() {
     return;
   }
 
+  const detrainTh = params.detrain_threshold || 20;
+  const overtrainTh = params.overtrain_threshold || -20;
+
+  const brkFrom = timeline.length > 0 ? timeline[0].day_key : '';
+  const brkTo = timeline.length > 0 ? timeline[timeline.length - 1].day_key : '';
+  const brkQs = brkFrom && brkTo ? '?from=' + brkFrom + '&to=' + brkTo : '';
+  const breakdown = brkQs ? await fetchJSON('/api/tss-breakdown' + brkQs) : [];
+
   document.getElementById('stats-bar').textContent =
     `${stats.totalSets} sets · ${stats.totalDays} days`;
 
   /* Training status */
-  const status = trainingStatus(summary.tsb, summary.ctl);
+  const status = trainingStatus(summary.tsb, summary.ctl, detrainTh, overtrainTh);
 
   /* Summary cards */
   document.getElementById('summary-cards-tss').innerHTML = `
@@ -127,17 +156,11 @@ async function renderTSS() {
       <div class="value ${status.cls}">${status.label}</div>
       <div class="hint">${status.desc}</div>
     </div>
-    <div class="card"><h3>CTL</h3><div class="value positive">${formatNum(summary.ctl)}</div></div>
-    <div class="card"><h3>ATL</h3><div class="value negative">${formatNum(summary.atl)}</div></div>
-    <div class="card"><h3>TSB</h3><div class="value ${summary.tsb >= 0 ? 'positive' : 'negative'}">${formatNum(summary.tsb)}</div></div>
-    <div class="card"><h3>Daily TSS</h3><div class="value neutral">${formatNum(summary.daily_tss, 1)}</div></div>
+    <div class="card"><h3>Fitness (6w SMA)</h3><div class="value positive">${formatNum(summary.ctl)}</div></div>
+    <div class="card"><h3>Fatigue (1w SMA)</h3><div class="value negative">${formatNum(summary.atl)}</div></div>
+    <div class="card"><h3>TSB (% Fitness)</h3><div class="value ${summary.tsb >= 0 ? 'positive' : 'negative'}">${formatNum(summary.ctl > 0 ? (summary.tsb / summary.ctl) * 100 : 0, 1)}%</div></div>
+    <div class="card"><h3>TSB</h3><div class="value ${summary.tsb >= 0 ? 'positive' : 'negative'}">${formatNum(summary.tsb, 1)}</div></div>
   `;
-
-  /* Deload alert */
-  document.getElementById('alerts-tss').innerHTML =
-    summary.deload_warning
-      ? '<div class="alert deload">⚠ Deload recommended — TSB is critically low</div>'
-      : '';
 
   const labels = timeline.map(d => d.day_key);
   const ctlData = timeline.map(d => d.ctl);
@@ -147,13 +170,15 @@ async function renderTSS() {
 
   destroyCharts(['fatigue', 'tss']);
 
+  const statusColors = tsbData.map((tsb, i) => trainingStatus(tsb, ctlData[i], detrainTh, overtrainTh).cls);
+
   chartInstances.fatigue = new Chart(document.getElementById('fatigueChart'), {
     type: 'line',
     data: {
       labels,
       datasets: [
-        { label: 'CTL', data: ctlData, borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
-        { label: 'ATL', data: atlData, borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
+        { label: 'Fitness (6w SMA)', data: ctlData, borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
+        { label: 'Fatigue (1w SMA)', data: atlData, borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
         { label: 'TSB', data: tsbData, borderColor: '#d29922', borderDash: [5,5], tension: 0.3, pointRadius: 0 }
       ]
     },
@@ -161,13 +186,18 @@ async function renderTSS() {
       ...commonOpts(),
       plugins: {
         ...commonOpts().plugins,
+        fatigueZones: { statusColors: statusColors },
         legend: { labels: { color: '#c9d1d9' } }
       },
-      /* Reserve extra right margin for zone labels */
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
       layout: { padding: { right: 70 } }
-    },
-    plugins: [fatigueZonePlugin]
+    }
   });
+
+  buildLegend('legend-tss', detrainTh, overtrainTh);
 
   chartInstances.tss = new Chart(document.getElementById('tssChart'), {
     type: 'bar',
@@ -177,6 +207,34 @@ async function renderTSS() {
     },
     options: { ...commonOpts(), scales: { ...commonOpts().scales, y: { ...commonOpts().scales.y, beginAtZero: true } } }
   });
+
+  /* TSS breakdown table */
+  const brkTbody = document.querySelector('#tss-breakdown-table tbody');
+  if (!breakdown || breakdown.length === 0) {
+    brkTbody.innerHTML = '<tr class="empty-msg"><td colspan="4" style="color:#8b949e;text-align:center;padding:16px;">No training days in this range.</td></tr>';
+  } else {
+    let rows = '';
+    for (const d of breakdown) {
+      rows += `<tr>
+        <td>${d.day_key}</td>
+        <td>${d.exercise}</td>
+        <td class="num">${d.sets}</td>
+        <td class="num">${formatNum(d.tss, 1)}</td>
+      </tr>`;
+    }
+    brkTbody.innerHTML = rows;
+  }
+}
+
+function buildLegend(containerId, detrainTh, overtrainTh) {
+  const dTh = detrainTh || 20;
+  const oTh = overtrainTh || -20;
+  document.getElementById(containerId).innerHTML = `
+    <div class="legend-item"><span class="legend-swatch detrain"></span> Detrain (TSB > ${dTh}% CTL)</div>
+    <div class="legend-item"><span class="legend-swatch deload"></span> Deload (TSB 0% to ${dTh}%)</div>
+    <div class="legend-item"><span class="legend-swatch productive"></span> Productive (TSB ${oTh}% to 0%)</div>
+    <div class="legend-item"><span class="legend-swatch overtrain"></span> Overtrain (TSB < ${oTh}% CTL)</div>
+  `;
 }
 
 /* ════════════════════════════════════════════════════
@@ -192,16 +250,18 @@ async function renderMuscle() {
     document.querySelector('#daily-detail-table tbody').innerHTML = '';
     document.querySelector('#plateau-section tbody').innerHTML = '';
     document.querySelector('#plateau-section tr.empty-msg')?.remove();
-    destroyCharts(['muscle', 'rm']);
+  destroyCharts(['rm']);
     return;
   }
 
-  const days = getSelectedDays('time-range-2');
-  const qs = '?exercise=' + encodeURIComponent(exercise) + (days ? '&days=' + days : '');
+  const tr = getTimeRange('muscle');
+  const qs = '?exercise=' + encodeURIComponent(exercise)
+    + (tr.from && tr.to ? '&from=' + tr.from + '&to=' + tr.to
+      : tr.days ? '&days=' + tr.days : '');
 
   const [summary, timeline] = await Promise.all([
     fetchJSON('/api/summary' + qs),
-    fetchJSON('/api/timeline' + qs)
+    fetchJSON('/api/timeline' + qs),
   ]);
 
   if (summary.error) {
@@ -214,44 +274,42 @@ async function renderMuscle() {
   const el = document.getElementById('exercise-select');
   const exerciseLabel = el.options[el.selectedIndex].text;
 
-  document.getElementById('summary-cards-muscle').innerHTML = `
-    <div class="card"><h3>M (${exerciseLabel})</h3><div class="value neutral">${formatNum(summary.m, 4)}</div></div>
-    <div class="card"><h3>PR (${exerciseLabel})</h3><div class="value positive">${formatNum(summary.pr, 1)} kg</div></div>
-    <div class="card"><h3>1RM Pred (${exerciseLabel})</h3><div class="value positive">${formatNum(summary.rm1_predicted, 1)} kg</div></div>
-    <div class="card"><h3>Weight Mult</h3><div class="value neutral">${formatNum(summary.weight_mult, 3)}</div></div>
-  `;
+  const peakPR = timeline.reduce((max, d) => d.catabolism > max ? d.catabolism : max, 0);
+  const trainingDays = timeline.filter(d => d.total_sets > 0 && d.pr_actual > 0);
+  const lastTraining = trainingDays.length > 0 ? trainingDays[trainingDays.length - 1] : null;
+  const lastPR = lastTraining ? lastTraining.pr_actual : 0;
+  const currentPR = summary.pr;
 
-  /* Plateau alert */
-  const alertsEl = document.getElementById('alerts-muscle');
-  if (summary.plateau_hit) {
-    alertsEl.innerHTML = '<div class="alert plateau">&#x1F4C8; Plateau detected — Weight Mult increased to ' + formatNum(summary.weight_mult, 3) + '</div>';
-  } else {
-    alertsEl.innerHTML = '';
-  }
+  const cardReps = parseInt(document.getElementById('card-reps')?.value, 10) || 8;
+  const lastPRPct = peakPR > 0 && lastPR > 0 ? (lastPR / peakPR * 100) : 0;
+  const peakConverted = convert1RMToWeight(peakPR, cardReps);
+  const lastConverted = convert1RMToWeight(lastPR, cardReps);
+  const currentConverted = convert1RMToWeight(currentPR, cardReps);
+
+  document.getElementById('summary-cards-muscle').innerHTML = `
+    <div class="card"><h3>Peak PR</h3><div class="value positive">${formatNum(peakConverted, 1)} kg</div><div class="hint">1RM ${formatNum(peakPR, 1)} kg</div></div>
+    <div class="card"><h3>Last PR</h3><div class="value neutral">${lastPR > 0 ? formatNum(lastConverted, 1) + ' kg (' + formatNum(lastPRPct, 1) + '%)' : '—'}</div><div class="hint">1RM ${formatNum(lastPR, 1)} kg, of Peak 1RM ${formatNum(peakPR, 1)} kg</div></div>
+    <div class="card"><h3>PR dự kiến (${exerciseLabel})</h3><div class="value positive">${formatNum(currentConverted, 1)} kg</div><div class="hint">1RM ${formatNum(currentPR, 1)} kg</div></div>
+    <div class="card card-calc">
+      <h3>Tạ đề xuất (${cardReps} reps)</h3>
+      <span class="value positive" id="calc-weight-inline">${currentPR > 0 ? formatNum(computeWeightRIR3(currentPR, cardReps), 1) + ' - ' + formatNum(computeWeightRIR0(currentPR, cardReps), 1) + ' kg (3RIR → 0RIR)' : '—'}</span>
+      <div class="hint">Từ PR dự kiến 1RM ${formatNum(currentPR, 1)} kg</div>
+    </div>`;
+  document.getElementById('alerts-muscle').innerHTML = '';
 
   const labels = timeline.map(d => d.day_key);
-  const mData = timeline.map(d => d.m);
-  const prData = timeline.map(d => d.pr);
-  const rm1Data = timeline.map(d => d.rm1_predicted);
+  const rm1Data = timeline.map(d => d.rm1_predicted > 0 ? d.rm1_predicted : null);
+  const prActualData = timeline.map(d => d.pr_actual);
 
-  destroyCharts(['muscle', 'rm']);
-
-  chartInstances.muscle = new Chart(document.getElementById('muscleChart'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{ label: `M (${exerciseLabel})`, data: mData, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.1)', fill: true, tension: 0.3, pointRadius: 0 }]
-    },
-    options: commonOpts()
-  });
+  destroyCharts(['rm']);
 
   chartInstances.rm = new Chart(document.getElementById('rmChart'), {
     type: 'line',
     data: {
       labels,
       datasets: [
-        { label: `PR (${exerciseLabel})`, data: prData, borderColor: '#3fb950', tension: 0.3, pointRadius: 0 },
-        { label: `1RM Pred (${exerciseLabel})`, data: rm1Data, borderColor: '#bc8cff', tension: 0.3, pointRadius: 0 }
+        { label: `PR dự kiến (${exerciseLabel})`, data: rm1Data, borderColor: '#bc8cff', tension: 0.3, pointRadius: 0, spanGaps: false },
+        { label: `PR thực tế (${exerciseLabel})`, data: prActualData, borderColor: '#3fb950', backgroundColor: '#3fb950', showLine: false, pointRadius: 4, pointHoverRadius: 7 }
       ]
     },
     options: commonOpts()
@@ -260,54 +318,31 @@ async function renderMuscle() {
   /* Daily detail table */
   const detailTbody = document.querySelector('#daily-detail-table tbody');
   if (!timeline || timeline.length === 0) {
-    detailTbody.innerHTML = '<tr class="empty-msg"><td colspan="7" style="color:#8b949e;text-align:center;padding:16px;">No data.</td></tr>';
+    detailTbody.innerHTML = '<tr class="empty-msg"><td colspan="9" style="color:#8b949e;text-align:center;padding:16px;">No data.</td></tr>';
   } else {
     let rows = '';
     for (let i = 0; i < timeline.length; i++) {
       const d = timeline[i];
-      const prev = i > 0 ? timeline[i - 1] : null;
-      const netGain = d.anabolism - d.catabolism;
-      const newMuscle = prev ? d.m - prev.m : 0;
-      const newRM = prev ? d.rm1_predicted - prev.rm1_predicted : 0;
-      const netCls = netGain > 0 ? 'pos' : netGain < 0 ? 'neg' : '';
-      const nmCls = newMuscle > 0 ? 'pos' : newMuscle < 0 ? 'neg' : '';
-      const rmCls = newRM > 0 ? 'pos' : newRM < 0 ? 'neg' : '';
+      const growthPct = d.growth_pct || 0;
+      const decayPct = d.decay_pct || 0;
+      const netPct = d.net_pct || 0;
+      const netCls = netPct > 0 ? 'pos' : netPct < 0 ? 'neg' : '';
+      const effSets = d.anabolism || 0;
       rows += `<tr>
         <td>${d.day_key}</td>
-        <td class="num">${formatNum(d.anabolism, 5)}</td>
-        <td class="num">${formatNum(d.catabolism, 5)}</td>
-        <td class="num ${netCls}">${formatNum(netGain, 5)}</td>
-        <td class="num ${nmCls}">${formatNum(newMuscle, 5)}</td>
-        <td class="num ${rmCls}">${formatNum(newRM, 1)}</td>
+        <td class="num">${d.total_sets}</td>
+        <td class="num">${effSets}</td>
+        <td class="num pos">${formatNum(growthPct, 2)}%</td>
+        <td class="num neg">${formatNum(decayPct, 2)}%</td>
+        <td class="num ${netCls}">${formatNum(netPct, 2)}%</td>
         <td class="num">${formatNum(d.pr, 1)}</td>
+        <td class="num">${d.pr_actual > 0 ? formatNum(d.pr_actual, 1) : '—'}</td>
+        <td class="num">${formatNum(d.catabolism, 1)}</td>
       </tr>`;
     }
     detailTbody.innerHTML = rows;
   }
 
-  /* Plateau events table */
-  const thead = document.querySelector('#plateau-table thead');
-  const tbody = document.querySelector('#plateau-table tbody');
-  /* Remove old empty-row message if any */
-  tbody.querySelector('tr.empty-msg')?.remove();
-
-  const plateauRows = [];
-  for (let i = 0; i < timeline.length; i++) {
-    if (timeline[i].plateau_hit) {
-      const prev = i > 0 ? timeline[i - 1].weight_mult : 1.0;
-      plateauRows.push({ day_key: timeline[i].day_key, old_mult: prev, new_mult: timeline[i].weight_mult });
-    }
-  }
-
-  if (plateauRows.length === 0) {
-    thead.style.display = 'none';
-    tbody.innerHTML = '<tr class="empty-msg"><td colspan="3" style="color:#8b949e;text-align:center;padding:16px;">No plateau events for this exercise in the selected range.</td></tr>';
-  } else {
-    thead.style.display = '';
-    tbody.innerHTML = plateauRows.map(p =>
-      `<tr><td>${p.day_key}</td><td>${formatNum(p.old_mult, 3)}</td><td>${formatNum(p.new_mult, 3)}</td></tr>`
-    ).join('');
-  }
 }
 
 /* ════════════════════════════════════════════════════
@@ -340,21 +375,16 @@ function switchTab(tabId) {
    ════════════════════════════════════════════════════ */
 
 const PARAM_DEFS = [
-  { key: 'tau_ctl_days',       label: 'Fitness Time Constant (τ CTL)',   desc: 'Days for long-term fitness averaging.',      group: 'Neural Fatigue (TSS)', min: 7, max: 120, step: 1 },
-  { key: 'tau_atl_days',       label: 'Fatigue Time Constant (τ ATL)',   desc: 'Days for short-term fatigue averaging.',     group: 'Neural Fatigue (TSS)', min: 3, max: 28, step: 1 },
-  { key: 'm_max_cap',          label: 'Max Meaningful Reps (M_max)',     desc: 'Max reps before set is beyond failure.',     group: 'Neural Fatigue (TSS)', min: 10, max: 100, step: 1 },
-  { key: 'k_failure',          label: 'Failure Penalty (k_failure)',     desc: 'Multiplier for reps exceeding M_max.',       group: 'Neural Fatigue (TSS)', min: 1, max: 5, step: 0.1 },
-  { key: 'lambda_base',        label: 'Base Catabolism Rate (λ_base)',   desc: 'Daily muscle loss at rest (fraction).',      group: 'Muscle Dynamics',     min: 0.0001, max: 0.01, step: 0.0001, fmt: '0.0000' },
-  { key: 'lambda_max',         label: 'Max Catabolism Rate (λ_max)',     desc: 'Max muscle loss under high TSS (fraction).', group: 'Muscle Dynamics',     min: 0.0001, max: 0.02, step: 0.0001, fmt: '0.0000' },
-  { key: 'tss_crit',           label: 'Critical TSS (TSS_crit)',         desc: 'Daily TSS where catabolism peaks.',          group: 'Muscle Dynamics',     min: 10, max: 1000, step: 1 },
-  { key: 'a_max',              label: 'Max Anabolism Rate (A_max)',      desc: 'Ceiling on daily muscle building.',          group: 'Muscle Dynamics',     min: 0.0001, max: 0.02, step: 0.0001, fmt: '0.0000' },
-  { key: 'k_anabolic',         label: 'Anabolic Impulse Coeff (k)',      desc: 'Stimulus per set. Higher = faster gains.',   group: 'Muscle Dynamics',     min: 0.00001, max: 0.01, step: 0.00001, fmt: '0.00000' },
-  { key: 'alpha_intensity',    label: 'Intensity Exponent (α)',          desc: 'Sensitivity to weight/PR ratio.',            group: 'Muscle Dynamics',     min: 1, max: 20, step: 0.5 },
-  { key: 'm_min',              label: 'Minimum M (M_min)',               desc: 'Floor for M (muscle memory).',               group: 'Muscle Dynamics',     min: 0.001, max: 0.5, step: 0.001, fmt: '0.000' },
-  { key: 'pr_window_days',     label: 'PR Rolling Window',               desc: 'Days to look back for PR computation.',      group: 'PR & Detraining',     min: 7, max: 365, step: 1 },
-  { key: 'grace_days',         label: 'Detraining Grace (days)',         desc: 'Days before 1RM decay starts.',              group: 'PR & Detraining',     min: 0, max: 60, step: 1 },
-  { key: 'tau_decay_days',     label: 'Decay Time Constant (τ_decay)',   desc: 'Time constant for 1RM exponential decay.',   group: 'PR & Detraining',     min: 7, max: 365, step: 1 },
-  { key: 'floor_rm',           label: 'Floor RM Ratio',                   desc: 'Fraction of peak 1RM never lost.',           group: 'PR & Detraining',     min: 0.3, max: 0.95, step: 0.01, fmt: '0.00' }
+  { key: 'fitness_window_days', label: 'Fitness Window (days)',            desc: 'Days for long-term fitness SMA.',            group: 'Neural Fatigue (TSS)', min: 14, max: 112, step: 1 },
+  { key: 'fatigue_window_days', label: 'Fatigue Window (days)',            desc: 'Days for short-term fatigue SMA.',           group: 'Neural Fatigue (TSS)', min: 3, max: 28, step: 1 },
+  { key: 'rir_threshold',       label: 'RIR Threshold',                    desc: 'Max RIR to count as effective set.',         group: 'Muscle Dynamics',     min: 0, max: 5, step: 1 },
+  { key: 'effective_window_days', label: 'Effective Window (days)',        desc: 'Days of effective sets to sum for growth.',  group: 'Muscle Dynamics',     min: 1, max: 10, step: 1 },
+  { key: 'growth_per_set',      label: 'Growth per Set',                   desc: 'PR growth per effective set.',               group: 'Muscle Dynamics',     min: 0.0001, max: 0.01, step: 0.0001, fmt: '0.0000', default: 0.001 },
+  { key: 'max_growth_per_day',  label: 'Max Growth/Day',                   desc: 'Max PR growth per day.',                     group: 'Muscle Dynamics',     min: 0.0001, max: 0.01, step: 0.0001, fmt: '0.0000', default: 0.003 },
+  { key: 'decay_per_day',       label: 'Decay per Day',                    desc: 'PR decay per rest day.',                     group: 'Muscle Dynamics',     min: 0.0001, max: 0.01, step: 0.0001, fmt: '0.0000', default: 0.001 },
+  { key: 'peak_floor_ratio',    label: 'Peak Floor Ratio',                 desc: 'Fraction of peak PR as minimum floor.',     group: 'Muscle Dynamics',     min: 0.3, max: 0.95, step: 0.01, fmt: '0.00', default: 0.7 },
+  { key: 'detrain_threshold',   label: 'Detrain Threshold',                desc: 'TSB % above which = Detrain.',               group: 'Training Zones',     min: 5, max: 50, step: 1 },
+  { key: 'overtrain_threshold', label: 'Overtrain Threshold',              desc: 'TSB % below which = Overtrain.',             group: 'Training Zones',     min: -50, max: -5, step: 1 },
 ];
 
 function buildParamField(def, currentVal) {
@@ -457,11 +487,34 @@ async function init() {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
 
-  /* TSS controls */
-  document.getElementById('time-range').addEventListener('change', renderTSS);
+  function setUpRangeHandlers(selId, fromId, toId, renderFn) {
+    const sel = document.getElementById(selId);
+    const group = sel.closest('.controls-bar').querySelector('.date-range-group');
+    function toggleDateRange() {
+      if (sel.value === 'custom') {
+        group.style.display = 'flex';
+      } else {
+        group.style.display = 'none';
+        document.getElementById(fromId).value = '';
+        document.getElementById(toId).value = '';
+      }
+      renderFn();
+    }
+    sel.addEventListener('change', toggleDateRange);
+    document.getElementById(fromId).addEventListener('change', () => {
+      sel.value = 'custom';
+      group.style.display = 'flex';
+      renderFn();
+    });
+    document.getElementById(toId).addEventListener('change', () => {
+      sel.value = 'custom';
+      group.style.display = 'flex';
+      renderFn();
+    });
+  }
 
-  /* Muscle controls */
-  document.getElementById('time-range-2').addEventListener('change', renderMuscle);
+  setUpRangeHandlers('time-range', 'date-from-tss', 'date-to-tss', renderTSS);
+  setUpRangeHandlers('time-range-2', 'date-from-muscle', 'date-to-muscle', renderMuscle);
 
   const exercises = await fetchJSON('/api/exercises');
   const sel = document.getElementById('exercise-select');
@@ -472,6 +525,8 @@ async function init() {
     sel.appendChild(opt);
   }
   sel.addEventListener('change', renderMuscle);
+
+  document.getElementById('card-reps').addEventListener('input', renderMuscle);
 
   /* Sync 2nd time range selector with 1st */
   document.getElementById('time-range').addEventListener('change', () => {

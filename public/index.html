@@ -26,6 +26,7 @@
           <label for="time-range">Time Range</label>
           <select id="time-range">
             <option value="">Since start</option>
+            <option value="custom">Custom range</option>
             <option value="30">Last 30 days</option>
             <option value="90">Last 90 days</option>
             <option value="180">Last 180 days</option>
@@ -33,16 +34,43 @@
             <option value="365">Last 1 year</option>
           </select>
         </div>
+        <div class="date-range-group" style="display:none">
+          <div class="control-group">
+            <label for="date-from-tss">From</label>
+            <input type="date" id="date-from-tss">
+          </div>
+          <div class="control-group">
+            <label for="date-to-tss">To</label>
+            <input type="date" id="date-to-tss">
+          </div>
+        </div>
       </div>
       <section id="summary-cards-tss" class="summary-cards"></section>
       <section id="alerts-tss"></section>
       <section class="chart-container">
-        <h2>Fatigue Timeline (CTL / ATL / TSB)</h2>
+        <h2>Fitness &amp; Fatigue Timeline</h2>
         <canvas id="fatigueChart"></canvas>
+        <div id="legend-tss" class="legend-bar"></div>
       </section>
       <section class="chart-container">
         <h2>Daily TSS</h2>
         <canvas id="tssChart"></canvas>
+      </section>
+      <section id="tss-breakdown-section">
+        <h2>TSS Breakdown by Exercise</h2>
+        <div class="table-scroll">
+          <table id="tss-breakdown-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Exercise</th>
+                <th>Sets</th>
+                <th>TSS</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
     </div>
 
@@ -53,12 +81,27 @@
           <label for="time-range-2">Time Range</label>
           <select id="time-range-2">
             <option value="">Since start</option>
+            <option value="custom">Custom range</option>
             <option value="30">Last 30 days</option>
             <option value="90">Last 90 days</option>
             <option value="180">Last 180 days</option>
             <option value="year">This year</option>
             <option value="365">Last 1 year</option>
           </select>
+        </div>
+        <div class="date-range-group" style="display:none">
+          <div class="control-group">
+            <label for="date-from-muscle">From</label>
+            <input type="date" id="date-from-muscle">
+          </div>
+          <div class="control-group">
+            <label for="date-to-muscle">To</label>
+            <input type="date" id="date-to-muscle">
+          </div>
+        </div>
+        <div class="control-group">
+          <label for="card-reps">Reps</label>
+          <input type="number" id="card-reps" value="8" min="1" max="30" step="1">
         </div>
         <div class="control-group">
           <label for="exercise-select">Exercise <span class="required">*</span></label>
@@ -70,11 +113,7 @@
       <section id="summary-cards-muscle" class="summary-cards"></section>
       <section id="alerts-muscle"></section>
       <section class="chart-container">
-        <h2>Muscle Mass (M) Over Time</h2>
-        <canvas id="muscleChart"></canvas>
-      </section>
-      <section class="chart-container">
-        <h2>1RM Prediction (PR / 1RM_pred)</h2>
+        <h2>1RM Prediction (PR dự kiến)</h2>
         <canvas id="rmChart"></canvas>
       </section>
       <section id="daily-detail-section">
@@ -84,24 +123,19 @@
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Đồng hóa</th>
-                <th>Dị hóa</th>
-                <th>Net Gain</th>
-                <th>New Muscle</th>
-                <th>New RM</th>
-                <th>Actual Current PR</th>
+                <th>Sets</th>
+                <th>Eff</th>
+                <th>Growth%</th>
+                <th>Decay%</th>
+                <th>Net%</th>
+                <th>PR dự kiến</th>
+                <th>PR thực tế</th>
+                <th>Peak PR</th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
-      </section>
-      <section id="plateau-section">
-        <h2>Plateau Events</h2>
-        <table id="plateau-table">
-          <thead><tr><th>Date</th><th>Old Weight Mult</th><th>New Weight Mult</th></tr></thead>
-          <tbody></tbody>
-        </table>
       </section>
     </div>
 
