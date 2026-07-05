@@ -109,12 +109,33 @@ function getSetsByDay(dayKey) {
   return db.prepare('SELECT * FROM workout_sets WHERE day_key = ? ORDER BY id').all(dayKey);
 }
 
+function getSetsByDayAndExercise(dayKey, exercise) {
+  return db.prepare('SELECT * FROM workout_sets WHERE day_key = ? AND exercise = ? ORDER BY id').all(dayKey, exercise);
+}
+
 function getAllDayKeys() {
   return db.prepare('SELECT DISTINCT day_key FROM workout_sets ORDER BY day_key').all();
 }
 
+function getAllDayKeysForExercise(exercise) {
+  return db.prepare('SELECT DISTINCT day_key FROM workout_sets WHERE exercise = ? ORDER BY day_key').all(exercise);
+}
+
+function getDistinctExercises() {
+  return db.prepare('SELECT DISTINCT exercise FROM workout_sets ORDER BY exercise').all();
+}
+
 function getAllDailyMetrics() {
   return db.prepare('SELECT * FROM daily_metrics ORDER BY day_key').all();
+}
+
+function getMetricsByDayRange(fromDate, toDate) {
+  return db.prepare('SELECT * FROM daily_metrics WHERE day_key >= ? AND day_key <= ? ORDER BY day_key').all(fromDate, toDate);
+}
+
+function getDailyTSSForDay(dayKey) {
+  const row = db.prepare('SELECT daily_tss FROM daily_metrics WHERE day_key = ?').get(dayKey);
+  return row ? row.daily_tss : 0;
 }
 
 function getLatestMetric() {
@@ -132,6 +153,12 @@ function getAggregateStats() {
   return { totalSets: totalRows.count, totalDays: totalDays.count, latest };
 }
 
+function getFirstAndLastDay() {
+  const first = db.prepare('SELECT MIN(day_key) as first FROM workout_sets').get();
+  const last = db.prepare('SELECT MAX(day_key) as last FROM workout_sets').get();
+  return { firstDay: first.first, lastDay: last.last };
+}
+
 function closeDatabase() {
   if (db) db.close();
 }
@@ -147,11 +174,17 @@ module.exports = {
   upsertDailyMetric,
   insertPlateauEvent,
   getSetsByDay,
+  getSetsByDayAndExercise,
   getAllDayKeys,
+  getAllDayKeysForExercise,
+  getDistinctExercises,
   getAllDailyMetrics,
+  getMetricsByDayRange,
+  getDailyTSSForDay,
   getLatestMetric,
   getAllPlateauEvents,
   getAggregateStats,
+  getFirstAndLastDay,
   closeDatabase,
   getDb
 };

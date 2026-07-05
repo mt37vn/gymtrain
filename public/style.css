@@ -24,6 +24,59 @@ h1 {
 #stats-bar {
   font-size: 0.9rem;
   color: #8b949e;
+  margin-bottom: 12px;
+}
+
+#controls {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.control-group label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: #8b949e;
+  letter-spacing: 0.5px;
+}
+
+.control-group select {
+  background: #161b22;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 6px 28px 6px 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  min-width: 180px;
+}
+
+.control-group select:hover {
+  border-color: #58a6ff;
+}
+
+.control-group select:focus {
+  outline: none;
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 2px rgba(88,166,255,0.2);
+}
+
+.control-group option {
+  background: #161b22;
+  color: #c9d1d9;
 }
 
 #summary-cards {

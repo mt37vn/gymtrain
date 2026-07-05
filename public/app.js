@@ -3,37 +3,71 @@ async function fetchJSON(url) {
   return res.json();
 }
 
-function formatNum(v, d = 1) { return Number(v).toFixed(d); }
+function formatNum(v, d) {
+  if (d === undefined) d = 1;
+  if (v === null || v === undefined) return '—';
+  return Number(v).toFixed(d);
+}
 
-function tssColor(v) {
-  if (v > 0) return '#3fb950';
-  return '#8b949e';
+let chartInstances = {};
+
+function destroyCharts() {
+  Object.values(chartInstances).forEach(c => { if (c) c.destroy(); });
+  chartInstances = {};
+}
+
+function buildQueryString() {
+  const params = new URLSearchParams();
+  const days = getSelectedDays();
+  const exercise = document.getElementById('exercise-select').value;
+  if (days) params.set('days', days);
+  if (exercise) params.set('exercise', exercise);
+  const qs = params.toString();
+  return qs ? '?' + qs : '';
+}
+
+function getSelectedDays() {
+  const val = document.getElementById('time-range').value;
+  if (!val) return '';
+  if (val === 'year') {
+    const d = new Date();
+    const startOfYear = new Date(d.getFullYear(), 0, 1);
+    return Math.floor((d - startOfYear) / (1000 * 60 * 60 * 24));
+  }
+  return val;
 }
 
 async function render() {
+  const qs = buildQueryString();
+  const exercise = document.getElementById('exercise-select').value;
+
   const [summary, timeline, plateaus, stats] = await Promise.all([
-    fetchJSON('/api/summary'),
-    fetchJSON('/api/timeline'),
+    fetchJSON('/api/summary' + qs),
+    fetchJSON('/api/timeline' + qs),
     fetchJSON('/api/plateaus'),
     fetchJSON('/api/stats')
   ]);
 
   if (summary.error) {
-    document.body.innerHTML = '<p style="padding:40px;color:#f85149;">No data available. Run the analysis first.</p>';
+    document.querySelector('main').innerHTML = '<p style="padding:40px;color:#f85149;">No data available for the selected filter.</p>';
     return;
   }
+
+  const sec = document.querySelector('main');
+  if (sec.querySelector('.no-data')) sec.querySelector('.no-data')?.remove();
 
   document.getElementById('stats-bar').textContent =
     `${stats.totalSets} sets · ${stats.totalDays} days`;
 
   const cards = document.getElementById('summary-cards');
+  const exerciseLabel = exercise ? exercise : 'Global';
   cards.innerHTML = `
     <div class="card"><h3>CTL</h3><div class="value positive">${formatNum(summary.ctl)}</div></div>
     <div class="card"><h3>ATL</h3><div class="value negative">${formatNum(summary.atl)}</div></div>
     <div class="card"><h3>TSB</h3><div class="value ${summary.tsb >= 0 ? 'positive' : 'negative'}">${formatNum(summary.tsb)}</div></div>
-    <div class="card"><h3>M (Muscle)</h3><div class="value neutral">${formatNum(summary.m, 4)}</div></div>
-    <div class="card"><h3>PR</h3><div class="value positive">${formatNum(summary.pr, 1)} kg</div></div>
-    <div class="card"><h3>1RM Pred</h3><div class="value positive">${formatNum(summary.rm1_predicted, 1)} kg</div></div>
+    <div class="card"><h3>M (${exerciseLabel})</h3><div class="value neutral">${formatNum(summary.m, 4)}</div></div>
+    <div class="card"><h3>PR (${exerciseLabel})</h3><div class="value positive">${formatNum(summary.pr, 1)} kg</div></div>
+    <div class="card"><h3>1RM Pred (${exerciseLabel})</h3><div class="value positive">${formatNum(summary.rm1_predicted, 1)} kg</div></div>
     <div class="card"><h3>Weight Mult</h3><div class="value neutral">${formatNum(summary.weight_mult, 3)}</div></div>
     <div class="card"><h3>Daily TSS</h3><div class="value neutral">${formatNum(summary.daily_tss, 1)}</div></div>
   `;
@@ -45,7 +79,7 @@ async function render() {
   }
   if (plateaus.length > 0) {
     const last = plateaus[plateaus.length - 1];
-    alertsEl.innerHTML += `<div class="alert plateau">📈 Plateau detected on ${last.day_key}: Weight Mult ${formatNum(last.old_mult, 3)} → ${formatNum(last.new_mult, 3)}</div>`;
+    alertsEl.innerHTML += `<div class="alert plateau">&#x1F4C8; Plateau detected on ${last.day_key}: Weight Mult ${formatNum(last.old_mult, 3)} → ${formatNum(last.new_mult, 3)}</div>`;
   }
 
   const labels = timeline.map(d => d.day_key);
@@ -68,7 +102,9 @@ async function render() {
     }
   };
 
-  new Chart(document.getElementById('fatigueChart'), {
+  destroyCharts();
+
+  chartInstances.fatigue = new Chart(document.getElementById('fatigueChart'), {
     type: 'line',
     data: {
       labels,
@@ -81,28 +117,28 @@ async function render() {
     options: commonOpts
   });
 
-  new Chart(document.getElementById('muscleChart'), {
+  chartInstances.muscle = new Chart(document.getElementById('muscleChart'), {
     type: 'line',
     data: {
       labels,
-      datasets: [{ label: 'M', data: mData, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.1)', fill: true, tension: 0.3, pointRadius: 0 }]
+      datasets: [{ label: `M (${exercise || 'Global'})`, data: mData, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.1)', fill: true, tension: 0.3, pointRadius: 0 }]
     },
     options: commonOpts
   });
 
-  new Chart(document.getElementById('rmChart'), {
+  chartInstances.rm = new Chart(document.getElementById('rmChart'), {
     type: 'line',
     data: {
       labels,
       datasets: [
-        { label: 'PR', data: prData, borderColor: '#3fb950', tension: 0.3, pointRadius: 0 },
-        { label: '1RM Pred', data: rm1Data, borderColor: '#bc8cff', tension: 0.3, pointRadius: 0 }
+        { label: `PR (${exercise || 'Global'})`, data: prData, borderColor: '#3fb950', tension: 0.3, pointRadius: 0 },
+        { label: `1RM Pred (${exercise || 'Global'})`, data: rm1Data, borderColor: '#bc8cff', tension: 0.3, pointRadius: 0 }
       ]
     },
     options: commonOpts
   });
 
-  new Chart(document.getElementById('tssChart'), {
+  chartInstances.tss = new Chart(document.getElementById('tssChart'), {
     type: 'bar',
     data: {
       labels,
@@ -112,9 +148,25 @@ async function render() {
   });
 
   const tbody = document.querySelector('#plateau-table tbody');
-  tbody.innerHTML = plateaus.map(p =>
+  tbody.innerHTML = (exercise ? [] : plateaus).map(p =>
     `<tr><td>${p.day_key}</td><td>${formatNum(p.old_mult, 3)}</td><td>${formatNum(p.new_mult, 3)}</td></tr>`
   ).join('');
 }
 
-document.addEventListener('DOMContentLoaded', render);
+async function init() {
+  const exercises = await fetchJSON('/api/exercises');
+  const sel = document.getElementById('exercise-select');
+  for (const ex of exercises) {
+    const opt = document.createElement('option');
+    opt.value = ex;
+    opt.textContent = ex;
+    sel.appendChild(opt);
+  }
+
+  document.getElementById('time-range').addEventListener('change', render);
+  document.getElementById('exercise-select').addEventListener('change', render);
+
+  render();
+}
+
+document.addEventListener('DOMContentLoaded', init);
