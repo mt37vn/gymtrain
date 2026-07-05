@@ -24,14 +24,58 @@ h1 {
 #stats-bar {
   font-size: 0.9rem;
   color: #8b949e;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
-#controls {
+/* ---- Tab navigation ---- */
+#tab-nav {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #30363d;
+  padding-bottom: 0;
+}
+
+.tab-btn {
+  background: transparent;
+  color: #8b949e;
+  border: 1px solid transparent;
+  border-bottom: none;
+  padding: 8px 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.tab-btn:hover {
+  color: #c9d1d9;
+  background: #161b22;
+}
+
+.tab-btn.active {
+  color: #58a6ff;
+  background: #161b22;
+  border-color: #30363d;
+  border-bottom-color: #161b22;
+  margin-bottom: -1px;
+}
+
+/* ---- Tab content ---- */
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+/* ---- Controls ---- */
+.controls-bar {
   display: flex;
   gap: 16px;
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-bottom: 20px;
 }
 
 .control-group {
@@ -45,6 +89,10 @@ h1 {
   text-transform: uppercase;
   color: #8b949e;
   letter-spacing: 0.5px;
+}
+
+.control-group .required {
+  color: #f85149;
 }
 
 .control-group select {
@@ -79,7 +127,8 @@ h1 {
   color: #c9d1d9;
 }
 
-#summary-cards {
+/* ---- Summary cards ---- */
+.summary-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 12px;
@@ -109,7 +158,14 @@ h1 {
 .card .value.negative { color: #f85149; }
 .card .value.neutral { color: #d29922; }
 
-#alerts {
+.card .hint {
+  font-size: 0.7rem;
+  color: #8b949e;
+  margin-top: 4px;
+}
+
+/* ---- Alerts ---- */
+#alerts-tss, #alerts-muscle {
   margin-bottom: 24px;
 }
 
@@ -132,6 +188,13 @@ h1 {
   color: #bc8cff;
 }
 
+.alert.info {
+  background: #0c2d6b;
+  border: 1px solid #58a6ff;
+  color: #58a6ff;
+}
+
+/* ---- Charts ---- */
 .chart-container {
   background: #161b22;
   border: 1px solid #30363d;
@@ -151,6 +214,7 @@ canvas {
   width: 100% !important;
 }
 
+/* ---- Plateau table ---- */
 #plateau-section {
   margin-bottom: 24px;
 }
