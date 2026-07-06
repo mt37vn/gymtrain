@@ -77,11 +77,9 @@ function runAnalysis() {
           exerciseState[exName] = state;
         }
 
-        // Compute TSS using pre-training PRe
         let exTSS = 0;
-        const rm1Pred = state.pre > 0 ? state.pre : 0;
         for (const s of sets) {
-          const tss = computeSetTSS(s.weight, s.reps, rm1Pred);
+          const tss = computeSetTSS(s.weight, s.reps, params.bodyweight || 70);
           dailyTSS += tss;
           exTSS += tss;
         }
@@ -150,7 +148,7 @@ function runAnalysis() {
 
     if (isTrainingDay) {
       trainingDayCount++;
-      console.log(`Training ${formatDate(currentDate)}: ${totalSets} sets, TSS=${dailyTSS.toFixed(1)}, Fitness=${fitness.toFixed(1)}, Fatigue=${fatigue.toFixed(1)}, TSB=${tsb.toFixed(1)}${deloadWarning ? ' DELOAD!' : ''}`);
+      console.log(`Training ${formatDate(currentDate)}: ${totalSets} sets, Vol=${dailyTSS.toFixed(0)}, Fitness=${fitness.toFixed(1)}, Fatigue=${fatigue.toFixed(1)}, TSB=${tsb.toFixed(1)}${deloadWarning ? ' DELOAD!' : ''}`);
     } else {
       restDayCount++;
     }

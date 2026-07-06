@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../database');
 const { analyzeExercise } = require('../engine/exercise-analyzer');
-const { simulateProgram, suggestWeight } = require('../engine/program-simulator');
+const { simulateProgram, suggestWeight, trainingDayOffsets } = require('../engine/program-simulator');
 const { parseCSVContent } = require('../csv-parser');
 const { runAnalysis } = require('../engine/analyzer');
 const { getParams, saveParams, resetParams } = require('../params');
@@ -97,7 +97,7 @@ router.get('/sets', (req, res) => {
   res.json(db.getSetsByDayAndExercise(date, exercise));
 });
 
-router.post('/import-csv', express.text({ type: 'text/csv', limit: '1mb' }), (req, res) => {
+router.post('/import-csv', express.text({ type: 'text/*', limit: '1mb' }), (req, res) => {
   try {
     const { sets, skipped } = parseCSVContent(req.body);
     if (sets.length > 10000) return res.status(413).json({ error: 'CSV too large: max 10,000 rows.' });
@@ -241,7 +241,6 @@ router.get('/programs/:id/ical', (req, res) => {
   if (!startDateStr) return res.status(400).json({ error: 'start_date query param required (YYYY-MM-DD)' });
 
   const startDate = new Date(startDateStr + 'T00:00:00');
-  const totalDays = weeks * daysPerWeek;
 
   const params = getParams();
   const overtrainTh = params.overtrain_threshold || -20;
@@ -266,18 +265,22 @@ router.get('/programs/:id/ical', (req, res) => {
     'METHOD:PUBLISH'
   ];
 
-  for (let di = 0; di < totalDays; di++) {
-    const n = uniqueDays;
-    const d = daysPerWeek;
-    const p = di % d;
-    const w = Math.floor(di / d);
-    const startOffset = d > n ? (w % n) : 0;
-    const dayIdx = (startOffset + p) % n;
+  const offsets = trainingDayOffsets(daysPerWeek);
+  const totalCalendarDays = weeks * 7;
+  for (let cd = 0; cd < totalCalendarDays; cd++) {
+    const dow = cd % 7;
+    if (!offsets.includes(dow)) continue;
+
+    const sessionInWeek = offsets.indexOf(dow);
+    const w = Math.floor(cd / 7);
+    const p = sessionInWeek;
+    const startOffset = daysPerWeek > uniqueDays ? (w % uniqueDays) : 0;
+    const dayIdx = (startOffset + p) % uniqueDays;
     const day = program.days[dayIdx];
     if (!day) continue;
 
     const eventDate = new Date(startDate);
-    eventDate.setDate(eventDate.getDate() + di);
+    eventDate.setDate(eventDate.getDate() + cd);
 
     const dateStr = eventDate.toISOString().slice(0, 10).replace(/-/g, '');
     const dayName = day.name || `Day ${dayIdx + 1}`;

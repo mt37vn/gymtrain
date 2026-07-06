@@ -777,20 +777,10 @@ async function showSimulation(data) {
     }
   }
 
-  const params = await fetchJSON('/api/params');
-  const overtrainTh = params.overtrain_threshold || -20;
-
-  const deloadWeeks = new Set();
-  for (const week of data.weeks) {
-    const wTsbVals = week.days.map(d => d.tsb).filter(v => v !== undefined && v !== null);
-    if (wTsbVals.length > 0) {
-      const avgTsb = wTsbVals.reduce((a, b) => a + b, 0) / wTsbVals.length;
-      if (avgTsb < overtrainTh) deloadWeeks.add(week.week);
-    }
-  }
-
   if (window.programChart) window.programChart.destroy();
 
+  const params = await fetchJSON('/api/params');
+  const overtrainTh = params.overtrain_threshold || -20;
   const statusColors = tsbVals.map((tsb, i) => trainingStatus(tsb, ctlVals[i], 20, overtrainTh).cls);
 
   window.programChart = new Chart(document.getElementById('programSimChart'), {
@@ -798,11 +788,11 @@ async function showSimulation(data) {
     data: {
       labels,
       datasets: [
-        { label: 'TSS', data: tssVals, borderColor: '#d29922', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3 },
-        { label: 'Fitness (CTL)', data: ctlVals, borderColor: '#3fb950', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3 },
-        { label: 'Fatigue (ATL)', data: atlVals, borderColor: '#f85149', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3 },
-        { label: 'Zero', data: Array(labels.length).fill(0), borderColor: 'rgba(201,209,217,0.5)', tension: 0, pointRadius: 0, pointHitRadius: 0, pointHoverRadius: 0 },
-        { label: 'TSB', data: tsbVals, borderColor: '#58a6ff', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3 }
+        { label: 'TSS', data: tssVals, type: 'bar', backgroundColor: 'rgba(255,255,255,0.5)', borderColor: 'rgba(255,255,255,0.5)', borderWidth: 0, order: 0, barPercentage: 0.3, categoryPercentage: 0.8 },
+        { label: 'Fitness (CTL)', data: ctlVals, borderColor: '#3fb950', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3, order: 1 },
+        { label: 'Fatigue (ATL)', data: atlVals, borderColor: '#f85149', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3, order: 1 },
+        { label: 'Zero', data: Array(labels.length).fill(0), borderColor: 'rgba(201,209,217,0.5)', tension: 0, pointRadius: 0, pointHitRadius: 0, pointHoverRadius: 0, order: 1 },
+        { label: 'TSB', data: tsbVals, borderColor: '#58a6ff', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3, order: 1 }
       ]
     },
     options: {
@@ -837,17 +827,23 @@ async function showSimulation(data) {
   // Week-by-week schedule with day cards
   let tableHtml = '<div class="chart-container"><h2>Program Details</h2>';
   for (const week of data.weeks) {
-    const isDeload = deloadWeeks.has(week.week);
-    const boxClass = isDeload ? 'program-day-box deload' : 'program-day-box';
-    tableHtml += `<div style="margin-bottom:16px"><h3 style="color:#58a6ff;margin-bottom:8px;font-size:0.9rem">Week ${week.week}${isDeload ? ' (Deload)' : ''}</h3><div style="display:flex;flex-wrap:wrap;gap:12px">`;
+    tableHtml += `<div style="margin-bottom:16px"><h3 style="color:#58a6ff;margin-bottom:8px;font-size:0.9rem">Week ${week.week}</h3><div style="display:flex;flex-wrap:wrap;gap:12px">`;
     for (const day of week.days) {
-      const dayHeader = isDeload ? escapeHtml(day.day_name) + ' (Deload)' : escapeHtml(day.day_name);
-      const rowClass = isDeload ? 'deload-row' : '';
-      tableHtml += `<div class="${boxClass}"><div class="program-day-box-header">${dayHeader}</div><table class="program-sim-day-table"><thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th><th>Sets</th></tr></thead><tbody>`;
-      for (const ex of day.exercises) {
-        tableHtml += `<tr class="${rowClass}"><td>${escapeHtml(ex.name)}</td><td>${ex.weight} kg</td><td>${ex.reps}</td><td>${ex.sets}</td></tr>`;
+      const isDayDeload = day._da && day.exercises && day.exercises.length > 0;
+      const dayHeader = `W${week.week} - D${day.day} - ${escapeHtml(day.day_name)}` + (isDayDeload ? ' (Deload)' : '');
+      const boxClass = isDayDeload ? 'program-day-box deload' : 'program-day-box';
+      const rowClass = isDayDeload ? 'deload-row' : '';
+      tableHtml += `<div class="${boxClass}"><div class="program-day-box-header">${dayHeader}</div>`;
+      if (day.exercises && day.exercises.length > 0) {
+        tableHtml += `<table class="program-sim-day-table"><thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th><th>Sets</th></tr></thead><tbody>`;
+        for (const ex of day.exercises) {
+          tableHtml += `<tr class="${rowClass}"><td>${escapeHtml(ex.name)}</td><td>${ex.weight} kg</td><td>${ex.reps}</td><td>${ex.sets}</td></tr>`;
+        }
+        tableHtml += `</tbody></table>`;
+      } else {
+        tableHtml += `<div style="padding:8px;color:#8b949e;font-size:0.8rem;text-align:center">Rest day</div>`;
       }
-      tableHtml += `</tbody></table></div>`;
+      tableHtml += `</div>`;
     }
     tableHtml += '</div></div>';
   }
@@ -902,6 +898,7 @@ const PARAM_DEFS = [
   { key: 'decay_protection_days', label: 'Decay Protection (days)',         desc: 'Days without decay after effective session.', group: 'Muscle Dynamics',   min: 0, max: 30, step: 1 },
   { key: 'detrain_threshold',   label: 'Detrain Threshold',                desc: 'TSB % above which = Detrain.',               group: 'Training Zones',     min: 5, max: 100, step: 1 },
   { key: 'overtrain_threshold', label: 'Overtrain Threshold',              desc: 'TSB % below which = Overtrain.',             group: 'Training Zones',     min: -100, max: -5, step: 1 },
+  { key: 'bodyweight',          label: 'Bodyweight (kg)',                  desc: 'Used for TSS: rm1² / BW (Epley 1RM).',      group: 'Training Zones', min: 30, max: 200, step: 1 },
 ];
 
 function buildParamField(def, currentVal) {
@@ -1278,13 +1275,27 @@ async function init() {
   });
 
   /* Program top-level buttons */
-  document.getElementById('btn-new-program').addEventListener('click', async () => {
-    const name = prompt('Program name:');
+  const npModal = document.getElementById('new-program-modal');
+  document.querySelector('.np-close').addEventListener('click', () => { npModal.style.display = 'none'; });
+  npModal.addEventListener('click', (e) => { if (e.target === npModal) npModal.style.display = 'none'; });
+  document.getElementById('btn-new-program').addEventListener('click', () => {
+    document.getElementById('np-name').value = '';
+    document.getElementById('np-dpw').value = '3';
+    npModal.style.display = 'flex';
+    document.getElementById('np-name').focus();
+  });
+  document.getElementById('np-create').addEventListener('click', async () => {
+    const name = document.getElementById('np-name').value.trim();
     if (!name) return;
-    const daysPerWeek = parseInt(prompt('Days per week (default 3):') || '3', 10);
-    const res = await fetchJSON('/api/programs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, weeks: 4, days_per_week: daysPerWeek }) });
-    currentProgramId = res.id;
-    renderProgramTab();
+    const daysPerWeek = parseInt(document.getElementById('np-dpw').value) || 3;
+    npModal.style.display = 'none';
+    try {
+      const res = await fetchJSON('/api/programs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, weeks: 4, days_per_week: daysPerWeek }) });
+      currentProgramId = res.id;
+      renderProgramTab();
+    } catch (e) {
+      alert('Error creating program: ' + e.message);
+    }
   });
 
   document.getElementById('btn-save-program').addEventListener('click', async () => {
@@ -1340,11 +1351,4 @@ async function init() {
 
 document.addEventListener('DOMContentLoaded', init);
 
-window.createNewProgram = async function() {
-  const name = prompt('Program name:');
-  if (!name) return;
-  const daysPerWeek = parseInt(prompt('Days per week (default 3):') || '3', 10);
-  const res = await fetchJSON('/api/programs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, weeks: 4, days_per_week: daysPerWeek }) });
-  currentProgramId = res.id;
-  renderProgramTab();
-};
+

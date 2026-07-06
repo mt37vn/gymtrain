@@ -9,5 +9,6 @@
   "peak_floor_ratio": 0.7,
   "decay_protection_days": 7,
   "detrain_threshold": 20,
-  "overtrain_threshold": -20
+  "overtrain_threshold": -20,
+  "bodyweight": 70
 }
