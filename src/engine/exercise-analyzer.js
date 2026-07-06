@@ -10,26 +10,28 @@ function countEffectiveSets(sets, pre, rirThreshold) {
     const maxReps = Math.floor(30 * (pre / s.weight - 1));
     if (maxReps < 1) { count++; continue; }
     const rir = maxReps - s.reps;
-    if (rir <= rirThreshold) count++;
+    if (rir <= Math.max(1, Math.round(s.reps * rirThreshold))) count++;
   }
   return count;
 }
 
 function analyzeExercise(exercise) {
   const params = getParams();
-  const RIR = params.rir_threshold || 3;
+  const RIR = params.rir_threshold || 0.3;
   const WIN = params.effective_window_days || 3;
   const G_SET = params.growth_per_set || 0.001;
   const G_MAX = params.max_growth_per_day || 0.003;
   const DECAY = params.decay_per_day || 0.001;
   const FLOOR = params.peak_floor_ratio || 0.7;
+  const PROTECT = params.decay_protection_days || 7;
 
   const dayKeys = db.getAllDayKeysForExercise(exercise);
   if (dayKeys.length === 0) return [];
 
-  const range = db.getFirstAndLastDay();
-  const firstDate = new Date(range.firstDay + 'T00:00:00Z');
-  const lastDate = new Date(range.lastDay + 'T00:00:00Z');
+  const firstRow = db.getDb().prepare('SELECT MIN(day_key) as first FROM workout_sets WHERE exercise = ?').get(exercise);
+  if (!firstRow || !firstRow.first) return [];
+  const firstDate = new Date(firstRow.first + 'T00:00:00Z');
+  const lastDate = new Date();
   const totalDays = Math.round((lastDate - firstDate) / (1000 * 60 * 60 * 24)) + 1;
 
   const trainingDaySet = new Set(dayKeys.map(d => d.day_key));
@@ -37,6 +39,7 @@ function analyzeExercise(exercise) {
 
   let prevPRe = 0;
   let peakPR = 0;
+  let lastEffectiveDay = -999;
   const effectiveHistory = new Array(WIN + 1).fill(0);
 
   for (let i = 0; i < totalDays; i++) {
@@ -60,8 +63,9 @@ function analyzeExercise(exercise) {
 
       effectiveSetsToday = countEffectiveSets(sets, prevPRe, RIR);
       effectiveHistory[0] = effectiveSetsToday;
+      if (effectiveSetsToday > 0) lastEffectiveDay = i;
 
-      prActual = sets.reduce((max, s) => {
+      prActual = sets.reduce((max, s) => { if (s.is_warmup) return max;
         const ep = computeEpley1RM(s.weight, s.reps);
         return ep > max ? ep : max;
       }, 0);
@@ -69,7 +73,8 @@ function analyzeExercise(exercise) {
 
     const sumPast = effectiveHistory.slice(1, WIN + 1).reduce((a, b) => a + b, 0);
     const growthRate = Math.min(G_MAX, sumPast * G_SET);
-    const netRate = growthRate - DECAY;
+    const daysSinceEffective = i - lastEffectiveDay;
+    const netRate = daysSinceEffective <= PROTECT ? growthRate : growthRate - DECAY;
 
     if (prevPRe > 0) {
       const floorPR = peakPR * FLOOR;
@@ -102,10 +107,10 @@ function analyzeExercise(exercise) {
       anabolism: effectiveSetsToday,
       catabolism: peakPR,
       total_sets: totalSets,
-      daily_change_pct: (prevPRe > 0) ? (growthRate - DECAY) * 100 : 0,
+      daily_change_pct: (prevPRe > 0) ? netRate * 100 : 0,
       growth_type: (prActual > prevPRe && prevPRe > 0) ? 'correction' : (growthRate > 0 ? 'growth' : 'decay'),
       growth_pct: growthRate * 100,
-      decay_pct: DECAY * 100,
+      decay_pct: (daysSinceEffective <= PROTECT) ? 0 : DECAY * 100,
       net_pct: netRate * 100,
       effective_sets: effectiveSetsToday
     });

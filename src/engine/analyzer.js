@@ -19,11 +19,12 @@ function runAnalysis() {
   const params = getParams();
   const FITNESS_WINDOW = params.fitness_window_days || 42;
   const FATIGUE_WINDOW = params.fatigue_window_days || 7;
-  const RIR = params.rir_threshold || 3;
+  const RIR = params.rir_threshold || 0.3;
   const G_SET = params.growth_per_set || 0.001;
   const G_MAX = params.max_growth_per_day || 0.003;
   const DECAY = params.decay_per_day || 0.001;
   const FLOOR = params.peak_floor_ratio || 0.7;
+  const PROTECT = params.decay_protection_days || 7;
   const OVERTRAIN_TH = params.overtrain_threshold || -20;
 
   const dayKeys = db.getAllDayKeys();
@@ -33,14 +34,14 @@ function runAnalysis() {
   }
 
   const firstDate = dayKeyToDate(dayKeys[0].day_key);
-  const lastDate = dayKeyToDate(dayKeys[dayKeys.length - 1].day_key);
+  const lastDate = new Date();
   const totalCalendarDays = daysBetween(firstDate, lastDate) + 1;
 
   console.log(`Analysis range: ${formatDate(firstDate)} to ${formatDate(lastDate)} (${totalCalendarDays} calendar days)`);
 
   const trainingDaySet = new Set(dayKeys.map(d => d.day_key));
   const tssValues = [];
-  const exerciseState = {}; // { pre, peak, effectiveHistory: [today, D-1, D-2, D-3] }
+  const exerciseState = {}; // { pre, peak, effectiveHistory: [today, D-1, D-2, D-3], lastEffectiveDay }
   let trainingDayCount = 0;
   let restDayCount = 0;
 
@@ -72,7 +73,7 @@ function runAnalysis() {
       for (const [exName, sets] of Object.entries(setsByExercise)) {
         let state = exerciseState[exName];
         if (!state) {
-          state = { pre: 0, peak: 0, effectiveHistory: [0, 0, 0, 0] };
+          state = { pre: 0, peak: 0, effectiveHistory: [0, 0, 0, 0], lastEffectiveDay: -999 };
           exerciseState[exName] = state;
         }
 
@@ -87,14 +88,17 @@ function runAnalysis() {
 
         // Count effective sets (RIR ≤ R)
         let effCount = 0;
-        for (const s of sets) {
-          if (s.weight <= 0 || s.reps <= 0) continue;
-          const maxReps = Math.floor(30 * (state.pre / s.weight - 1));
-          if (maxReps < 1) { effCount++; continue; }
-          const rir = maxReps - s.reps;
-          if (rir <= RIR) effCount++;
+        if (state.pre > 0) {
+          for (const s of sets) {
+            if (s.weight <= 0 || s.reps <= 0) continue;
+            const maxReps = Math.floor(30 * (state.pre / s.weight - 1));
+            if (maxReps < 1) { effCount++; continue; }
+            const rir = maxReps - s.reps;
+            if (rir <= Math.max(1, Math.round(s.reps * RIR))) effCount++;
+          }
         }
         state.effectiveHistory[0] = effCount;
+        if (effCount > 0) state.lastEffectiveDay = i;
 
         // Compute actual Epley
         const todayEpley = sets.reduce((max, s) => {
@@ -114,7 +118,8 @@ function runAnalysis() {
         const h = state.effectiveHistory;
         const sumPast = h[1] + h[2] + h[3];
         const growthRate = Math.min(G_MAX, sumPast * G_SET);
-        const netRate = growthRate - DECAY;
+        const daysSinceEffective = i - state.lastEffectiveDay;
+        const netRate = daysSinceEffective <= PROTECT ? growthRate : growthRate - DECAY;
         const floorPR = state.peak * FLOOR;
         state.pre = Math.max(floorPR, state.pre * (1 + netRate));
       }

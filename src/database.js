@@ -130,7 +130,21 @@ function getAllDayKeysForExercise(exercise) {
 }
 
 function getDistinctExercises() {
-  return db.prepare('SELECT DISTINCT exercise FROM workout_sets ORDER BY exercise').all();
+  return db.prepare(`
+    SELECT exercise FROM workout_sets
+    GROUP BY exercise
+    ORDER BY COUNT(*) DESC, exercise
+  `).all();
+}
+
+function getLastSetReps(exercise) {
+  const row = db.prepare('SELECT reps FROM workout_sets WHERE exercise = ? AND reps > 0 ORDER BY day_key DESC, id DESC LIMIT 1').get(exercise);
+  return row ? row.reps : null;
+}
+
+function setExists(startMs, exercise, reps, weight) {
+  const row = db.prepare('SELECT id FROM workout_sets WHERE start_ms = ? AND exercise = ? AND reps = ? AND weight = ? LIMIT 1').get(startMs, exercise, reps, weight);
+  return !!row;
 }
 
 function getAllDailyMetrics() {
@@ -195,6 +209,25 @@ function getDb() {
   return db;
 }
 
+function getWorkingSets() {
+  return db.prepare("SELECT * FROM workout_sets WHERE is_warmup = 0 ORDER BY exercise, day_key").all();
+}
+
+function updateSet(id, fields) {
+  const sets = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(fields)) {
+    sets.push(`${k} = ?`);
+    vals.push(v);
+  }
+  vals.push(id);
+  db.prepare(`UPDATE workout_sets SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+}
+
+function deleteSet(id) {
+  db.prepare('DELETE FROM workout_sets WHERE id = ?').run(id);
+}
+
 module.exports = {
   initDatabase,
   insertSet,
@@ -206,6 +239,8 @@ module.exports = {
   getAllDayKeys,
   getAllDayKeysForExercise,
   getDistinctExercises,
+  getLastSetReps,
+  setExists,
   getAllDailyMetrics,
   getMetricsByDayRange,
   getDailyTSSForDay,
@@ -217,5 +252,8 @@ module.exports = {
   closeDatabase,
   getDb,
   upsertTSSBreakdown,
-  getTSSBreakdown
+  getTSSBreakdown,
+  getWorkingSets,
+  updateSet,
+  deleteSet
 };

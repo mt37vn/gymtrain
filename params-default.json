@@ -1,12 +1,13 @@
 {
   "fitness_window_days": 42,
   "fatigue_window_days": 7,
-  "rir_threshold": 3,
+  "rir_threshold": 0.3,
   "effective_window_days": 3,
   "growth_per_set": 0.001,
   "max_growth_per_day": 0.003,
   "decay_per_day": 0.001,
   "peak_floor_ratio": 0.7,
+  "decay_protection_days": 7,
   "detrain_threshold": 20,
   "overtrain_threshold": -20
 }

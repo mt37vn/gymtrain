@@ -45,8 +45,7 @@ function parseBool(val) {
 
 const SKIP_EXERCISES = new Set(['Running', 'SkiErg', 'Rowing', 'Cycling', 'Swimming']);
 
-function parseCSV(filePath) {
-  const content = fs.readFileSync(filePath, 'utf-8');
+function parseCSVContent(content) {
   const lines = content.split(/\r?\n/).filter(line => line.trim().length > 0);
 
   if (lines.length < 2) {
@@ -124,4 +123,9 @@ function parseCSV(filePath) {
   return { sets, skipped };
 }
 
-module.exports = { parseCSV };
+function parseCSV(filePath) {
+  const content = fs.readFileSync(filePath, 'utf-8');
+  return parseCSVContent(content);
+}
+
+module.exports = { parseCSV, parseCSVContent };

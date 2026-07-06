@@ -4,6 +4,12 @@ async function fetchJSON(url) {
   return res.json();
 }
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 function formatNum(v, d) {
   if (d === undefined) d = 1;
   if (v === null || v === undefined) return '—';
@@ -70,18 +76,19 @@ const fatigueZonePlugin = {
     const { ctx, chartArea: { left, right, top, bottom }, scales } = chart;
     if (!left || !scales) return;
 
-    // Vẽ nền dọc theo training status
     const pluginOpts = chart.options.plugins && chart.options.plugins.fatigueZones;
     const statusColors = pluginOpts && pluginOpts.statusColors;
     if (statusColors && statusColors.length > 1 && scales.x && scales.y) {
-      const { x, y } = scales;
+      const { x } = scales;
       const colorMap = {
-        'detrain': 'rgba(139,148,158,0.08)',
-        'deload': 'rgba(88,166,255,0.08)',
-        'productive': 'rgba(63,185,80,0.08)',
-        'overtrain': 'rgba(248,81,73,0.10)'
+        'detrain': 'rgba(139,148,158,0.9)',
+        'deload': 'rgba(88,166,255,0.9)',
+        'productive': 'rgba(63,185,80,0.9)',
+        'overtrain': 'rgba(248,81,73,0.9)'
       };
       const dataLen = chart.data.labels.length;
+      const barHeight = 24;
+      const barY = bottom + 4;
       ctx.save();
       for (let i = 0; i < Math.min(statusColors.length - 1, dataLen - 1); i++) {
         if (!statusColors[i + 1]) continue;
@@ -89,7 +96,7 @@ const fatigueZonePlugin = {
         const x2 = Math.min(right, x.getPixelForValue(chart.data.labels[i + 1]));
         if (x2 > x1) {
           ctx.fillStyle = colorMap[statusColors[i + 1]] || 'transparent';
-          ctx.fillRect(x1, top, x2 - x1, bottom - top);
+          ctx.fillRect(x1, barY, x2 - x1, barHeight);
         }
       }
       ctx.restore();
@@ -108,8 +115,8 @@ function commonOpts() {
     animation: false,
     plugins: { legend: { labels: { color: '#c9d1d9' } } },
     scales: {
-      x: { ticks: { color: '#8b949e', maxTicksLimit: 20 }, grid: { color: '#21262d' } },
-      y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }
+      x: { ticks: { color: '#8b949e', maxTicksLimit: 20, padding: 34 }, grid: { display: false } },
+      y: { ticks: { color: '#8b949e' }, grid: { display: false } }
     }
   };
 }
@@ -177,9 +184,10 @@ async function renderTSS() {
     data: {
       labels,
       datasets: [
-        { label: 'Fitness (6w SMA)', data: ctlData, borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
-        { label: 'Fatigue (1w SMA)', data: atlData, borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
-        { label: 'TSB', data: tsbData, borderColor: '#d29922', borderDash: [5,5], tension: 0.3, pointRadius: 0 }
+        { label: 'Fitness (6w SMA)', data: ctlData, borderColor: '#3fb950', tension: 0.3, pointRadius: 0 },
+        { label: 'Fatigue (1w SMA)', data: atlData, borderColor: '#f85149', tension: 0.3, pointRadius: 0 },
+        { label: 'Zero', data: Array(labels.length).fill(0), borderColor: 'rgba(201,209,217,0.5)', tension: 0, pointRadius: 0, pointHitRadius: 0, pointHoverRadius: 0 },
+        { label: 'TSB', data: tsbData, borderColor: '#d29922', tension: 0.3, pointRadius: 0 }
       ]
     },
     options: {
@@ -187,25 +195,52 @@ async function renderTSS() {
       plugins: {
         ...commonOpts().plugins,
         fatigueZones: { statusColors: statusColors },
-        legend: { labels: { color: '#c9d1d9' } }
+        legend: { labels: { color: '#c9d1d9', filter: function(item) { return item.text !== 'Zero'; } } },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          filter: function(item) { return item.datasetIndex !== 2; },
+          callbacks: {
+            afterBody: function(items) {
+              const idx = items[0].dataIndex;
+              const ctl = ctlData[idx];
+              const tsb = tsbData[idx];
+              const st = trainingStatus(tsb, ctl, detrainTh, overtrainTh);
+              const pct = ctl > 0 ? (tsb / ctl * 100) : 0;
+              return `Status: ${st.label}\nTSB%: ${pct.toFixed(1)}%`;
+            }
+          }
+        }
       },
       interaction: {
         mode: 'index',
         intersect: false
       },
-      layout: { padding: { right: 70 } }
+      layout: { padding: { right: 70, bottom: 60 } }
     }
   });
 
   buildLegend('legend-tss', detrainTh, overtrainTh);
 
+  const tssAvg = tssData.reduce((a, b) => a + b, 0) / tssData.length || 0;
+
   chartInstances.tss = new Chart(document.getElementById('tssChart'), {
     type: 'bar',
     data: {
       labels,
-      datasets: [{ label: 'TSS', data: tssData, backgroundColor: tssData.map(v => v > 0 ? 'rgba(63,185,80,0.6)' : 'rgba(48,54,61,0.3)'), borderRadius: 2 }]
+      datasets: [
+        { label: 'TSS', data: tssData, backgroundColor: tssData.map(v => v > 0 ? 'rgba(63,185,80,0.6)' : 'rgba(48,54,61,0.3)'), borderRadius: 2 },
+        { type: 'line', label: 'Avg', data: Array(labels.length).fill(tssAvg), borderColor: 'rgba(201,209,217,0.7)', borderDash: [4,4], pointRadius: 0, pointHitRadius: 0, pointHoverRadius: 0 }
+      ]
     },
-    options: { ...commonOpts(), scales: { ...commonOpts().scales, y: { ...commonOpts().scales.y, beginAtZero: true } } }
+    options: {
+      ...commonOpts(),
+      plugins: {
+        legend: { labels: { color: '#c9d1d9', filter: function(item) { return item.text !== 'Avg'; } } },
+        tooltip: { mode: 'index', intersect: false, filter: function(item) { return item.datasetIndex !== 1; } }
+      },
+      scales: { ...commonOpts().scales, y: { ...commonOpts().scales.y, beginAtZero: true } }
+    }
   });
 
   /* TSS breakdown table */
@@ -214,7 +249,8 @@ async function renderTSS() {
     brkTbody.innerHTML = '<tr class="empty-msg"><td colspan="4" style="color:#8b949e;text-align:center;padding:16px;">No training days in this range.</td></tr>';
   } else {
     let rows = '';
-    for (const d of breakdown) {
+    for (let i = breakdown.length - 1; i >= 0; i--) {
+      const d = breakdown[i];
       rows += `<tr>
         <td>${d.day_key}</td>
         <td>${d.exercise}</td>
@@ -241,16 +277,14 @@ function buildLegend(containerId, detrainTh, overtrainTh) {
    TAB: Muscle Dynamic (Exercise-specific)
    ════════════════════════════════════════════════════ */
 async function renderMuscle() {
-  const exercise = document.getElementById('exercise-select').value;
+  const exercise = document.getElementById('exercise-input').value;
   if (!exercise) {
     /* No exercise selected — show prompt, clear charts */
     document.getElementById('summary-cards-muscle').innerHTML = '';
     document.getElementById('alerts-muscle').innerHTML =
       '<div class="alert info">Select an exercise above to view muscle dynamics.</div>';
     document.querySelector('#daily-detail-table tbody').innerHTML = '';
-    document.querySelector('#plateau-section tbody').innerHTML = '';
-    document.querySelector('#plateau-section tr.empty-msg')?.remove();
-  destroyCharts(['rm']);
+    destroyCharts(['rm']);
     return;
   }
 
@@ -259,9 +293,10 @@ async function renderMuscle() {
     + (tr.from && tr.to ? '&from=' + tr.from + '&to=' + tr.to
       : tr.days ? '&days=' + tr.days : '');
 
-  const [summary, timeline] = await Promise.all([
+  const [summary, timeline, params] = await Promise.all([
     fetchJSON('/api/summary' + qs),
     fetchJSON('/api/timeline' + qs),
+    fetchJSON('/api/params')
   ]);
 
   if (summary.error) {
@@ -271,10 +306,11 @@ async function renderMuscle() {
     return;
   }
 
-  const el = document.getElementById('exercise-select');
-  const exerciseLabel = el.options[el.selectedIndex].text;
+  const exerciseLabel = document.getElementById('exercise-input').value;
 
   const peakPR = timeline.reduce((max, d) => d.catabolism > max ? d.catabolism : max, 0);
+  const floorRatio = (params && params.peak_floor_ratio) || 0.7;
+  const floorPR = peakPR * floorRatio;
   const trainingDays = timeline.filter(d => d.total_sets > 0 && d.pr_actual > 0);
   const lastTraining = trainingDays.length > 0 ? trainingDays[trainingDays.length - 1] : null;
   const lastPR = lastTraining ? lastTraining.pr_actual : 0;
@@ -283,17 +319,67 @@ async function renderMuscle() {
   const cardReps = parseInt(document.getElementById('card-reps')?.value, 10) || 8;
   const lastPRPct = peakPR > 0 && lastPR > 0 ? (lastPR / peakPR * 100) : 0;
   const peakConverted = convert1RMToWeight(peakPR, cardReps);
+  const floorConverted = convert1RMToWeight(floorPR, cardReps);
   const lastConverted = convert1RMToWeight(lastPR, cardReps);
   const currentConverted = convert1RMToWeight(currentPR, cardReps);
+  const suggestedLow = computeWeightRIR3(currentPR, cardReps);
+  const suggestedHigh = computeWeightRIR0(currentPR, cardReps);
+
+  const prMin = peakConverted * 0.5;
+  const prMax = peakConverted || 1;
+  const pct = (v) => v <= prMin ? 0 : (((v - prMin) / (prMax - prMin)) * 100).toFixed(1);
+
+  const lastInRange = lastPR > 0 && suggestedLow > 0 && suggestedHigh > 0
+    && lastConverted >= suggestedLow && lastConverted <= suggestedHigh;
+  const prdkInRange = currentPR > 0 && suggestedLow > 0 && suggestedHigh > 0
+    && currentConverted >= suggestedLow && currentConverted <= suggestedHigh;
+  const prdkDotColor = prdkInRange ? '#3fb950' : '#f85149';
+  const lastColor = '#d29922';
+  const recLowColor = '#3fb950';
 
   document.getElementById('summary-cards-muscle').innerHTML = `
-    <div class="card"><h3>Peak PR</h3><div class="value positive">${formatNum(peakConverted, 1)} kg</div><div class="hint">1RM ${formatNum(peakPR, 1)} kg</div></div>
-    <div class="card"><h3>Last PR</h3><div class="value neutral">${lastPR > 0 ? formatNum(lastConverted, 1) + ' kg (' + formatNum(lastPRPct, 1) + '%)' : '—'}</div><div class="hint">1RM ${formatNum(lastPR, 1)} kg, of Peak 1RM ${formatNum(peakPR, 1)} kg</div></div>
-    <div class="card"><h3>PR dự kiến (${exerciseLabel})</h3><div class="value positive">${formatNum(currentConverted, 1)} kg</div><div class="hint">1RM ${formatNum(currentPR, 1)} kg</div></div>
-    <div class="card card-calc">
-      <h3>Tạ đề xuất (${cardReps} reps)</h3>
-      <span class="value positive" id="calc-weight-inline">${currentPR > 0 ? formatNum(computeWeightRIR3(currentPR, cardReps), 1) + ' - ' + formatNum(computeWeightRIR0(currentPR, cardReps), 1) + ' kg (3RIR → 0RIR)' : '—'}</span>
-      <div class="hint">Từ PR dự kiến 1RM ${formatNum(currentPR, 1)} kg</div>
+    <div class="pr-bar-chart">
+      <div class="pr-bar-legend">
+        <span class="pr-bar-legend-item"><span class="pr-bar-legend-dot" style="background:#bc8cff"></span> Peak</span>
+        <span class="pr-bar-legend-item"><span class="pr-bar-legend-dot" style="background:#8b949e"></span> Floor</span>
+        <span class="pr-bar-legend-item"><span class="pr-bar-legend-dot" style="background:${lastColor}"></span> Last</span>
+        <span class="pr-bar-legend-item"><span class="pr-bar-legend-dot" style="background:rgba(63,185,80,0.5)"></span> Rec</span>
+      </div>
+      <div class="pr-bar-track-wrap">
+        <div class="pr-bar-range" style="left:${pct(floorConverted)}%;width:${(100 - pct(floorConverted))}%"></div>
+        ${suggestedLow > 0 && suggestedHigh > 0 ? `<div class="pr-bar-recommend" style="left:${pct(suggestedLow)}%;width:${(pct(suggestedHigh) - pct(suggestedLow))}%"></div>` : ''}
+        <div class="pr-marker" style="left:${pct(floorConverted)}%">
+          <div class="pr-marker-line" style="background:#8b949e"></div>
+          <div class="pr-marker-label" style="color:#8b949e">${formatNum(floorConverted,1)}</div>
+        </div>
+        <div class="pr-marker" style="left:${pct(peakConverted)}%">
+          <div class="pr-marker-line" style="background:#bc8cff"></div>
+          <div class="pr-marker-label" style="color:#bc8cff">${formatNum(peakConverted,1)}</div>
+        </div>
+        ${suggestedLow > 0 ? `<div class="pr-marker" style="left:${pct(suggestedLow)}%">
+          <div class="pr-marker-line" style="background:${recLowColor}"></div>
+          <div class="pr-marker-label" style="color:${recLowColor}">${formatNum(suggestedLow,1)}</div>
+        </div>` : ''}
+        ${lastPR > 0 ? `<div class="pr-marker" style="left:${pct(lastConverted)}%">
+          <div class="pr-marker-line" style="background:${lastColor}"></div>
+          <div class="pr-marker-label pr-marker-label-bottom" style="color:${lastColor}">${formatNum(lastConverted,1)}</div>
+        </div>` : ''}
+        ${currentPR > 0 ? `<div class="pr-marker" style="left:${pct(currentConverted)}%">
+          <div class="pr-marker-line" style="background:#3fb950"></div>
+          <div class="pr-marker-label" style="color:#3fb950">${formatNum(currentConverted,1)}</div>
+        </div>` : ''}
+      </div>
+      <div class="pr-bar-scale">
+        <span>${formatNum(prMin,1)} (50% Peak)</span>
+        <span>${formatNum(prMax,1)} (Peak)</span>
+      </div>
+      <div class="pr-bar-stats">
+        <span class="pr-bar-stat">Peak 1RM: <strong>${formatNum(peakPR,1)} kg</strong></span>
+        <span class="pr-bar-stat">Floor 1RM: <strong>${formatNum(floorPR,1)} kg</strong></span>
+        <span class="pr-bar-stat">PR DK 1RM: <strong>${formatNum(currentPR,1)} kg</strong></span>
+        ${lastPR > 0 ? `<span class="pr-bar-stat">Last 1RM: <strong>${formatNum(lastPR,1)} kg</strong> (${formatNum(lastPRPct,1)}%)</span>` : ''}
+        <span class="pr-bar-stat">Reps: <strong>${cardReps}RM</strong></span>
+      </div>
     </div>`;
   document.getElementById('alerts-muscle').innerHTML = '';
 
@@ -301,19 +387,61 @@ async function renderMuscle() {
   const repSuffix = ` (${cardReps}RM)`;
   const rm1Data = timeline.map(d => d.rm1_predicted > 0 ? convert1RMToWeight(d.rm1_predicted, cardReps) : null);
   const prActualData = timeline.map(d => d.pr_actual > 0 ? convert1RMToWeight(d.pr_actual, cardReps) : null);
+  const recLowData = timeline.map(d => d.rm1_predicted > 0 ? computeWeightRIR3(d.rm1_predicted, cardReps) : null);
+  const recHighData = timeline.map(d => d.rm1_predicted > 0 ? computeWeightRIR0(d.rm1_predicted, cardReps) : null);
+
+  let peakSoFar = 0;
+  const prActualColors = timeline.map((d, i) => {
+    if (d.pr_actual > 0) {
+      if (d.pr_actual > peakSoFar) {
+        peakSoFar = d.pr_actual;
+        return '#bc8cff';
+      }
+      if (d.rm1_predicted > 0 && d.pr_actual >= d.rm1_predicted) return '#bc8cff';
+      if (recLowData[i] !== null && recHighData[i] !== null) {
+        const w = convert1RMToWeight(d.pr_actual, cardReps);
+        return w >= recLowData[i] && w <= recHighData[i] ? '#3fb950' : '#f85149';
+      }
+    }
+    return 'transparent';
+  });
+
+  for (let i = prActualColors.length - 1; i >= 0; i--) {
+    if (prActualColors[i] !== 'transparent') {
+      prActualColors[i] = '#d29922';
+      break;
+    }
+  }
 
   destroyCharts(['rm']);
 
+  const chartDatasets = [];
+
+  if (recLowData.some(v => v !== null) && recHighData.some(v => v !== null)) {
+    chartDatasets.push(
+      { label: 'Rec Low', data: recLowData, borderColor: 'rgba(63,185,80,0.3)', backgroundColor: 'rgba(63,185,80,0.08)', fill: '+1', pointRadius: 0, borderDash: [3, 3] },
+      { label: 'Rec High', data: recHighData, borderColor: 'rgba(63,185,80,0.3)', pointRadius: 0, borderDash: [3, 3] }
+    );
+  }
+
+  chartDatasets.push(
+    { label: `PR dự kiến${repSuffix} (${exerciseLabel})`, data: rm1Data, borderColor: '#3fb950', tension: 0.3, pointRadius: 0, spanGaps: false },
+    { label: `PR thực tế${repSuffix} (${exerciseLabel})`, data: prActualData, showLine: false, pointRadius: 4, pointHoverRadius: 7, pointBackgroundColor: prActualColors, pointBorderColor: prActualColors }
+  );
+
   chartInstances.rm = new Chart(document.getElementById('rmChart'), {
     type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label: `PR dự kiến${repSuffix} (${exerciseLabel})`, data: rm1Data, borderColor: '#bc8cff', tension: 0.3, pointRadius: 0, spanGaps: false },
-        { label: `PR thực tế${repSuffix} (${exerciseLabel})`, data: prActualData, borderColor: '#3fb950', backgroundColor: '#3fb950', showLine: false, pointRadius: 4, pointHoverRadius: 7 }
-      ]
-    },
-    options: commonOpts()
+    data: { labels, datasets: chartDatasets },
+    options: {
+      ...commonOpts(),
+      onClick: function(e) {
+        const pts = this.getElementsAtEventForMode(e, 'nearest', { intersect: true }, false);
+        if (pts.length === 0) return;
+        const idx = pts[0].index;
+        const dayKey = labels[idx];
+        if (dayKey) showDaySets(exercise, dayKey);
+      }
+    }
   });
 
   /* Daily detail table */
@@ -322,19 +450,20 @@ async function renderMuscle() {
     detailTbody.innerHTML = '<tr class="empty-msg"><td colspan="9" style="color:#8b949e;text-align:center;padding:16px;">No data.</td></tr>';
   } else {
     let rows = '';
-    for (let i = 0; i < timeline.length; i++) {
+    for (let i = timeline.length - 1; i >= 0; i--) {
       const d = timeline[i];
       const growthPct = d.growth_pct || 0;
       const decayPct = d.decay_pct || 0;
       const netPct = d.net_pct || 0;
       const netCls = netPct > 0 ? 'pos' : netPct < 0 ? 'neg' : '';
+      const decayCls = decayPct > 0 ? 'neg' : '';
       const effSets = d.anabolism || 0;
       rows += `<tr>
         <td>${d.day_key}</td>
         <td class="num">${d.total_sets}</td>
         <td class="num">${effSets}</td>
         <td class="num pos">${formatNum(growthPct, 2)}%</td>
-        <td class="num neg">${formatNum(decayPct, 2)}%</td>
+        <td class="num ${decayCls}">${formatNum(decayPct, 2)}%</td>
         <td class="num ${netCls}">${formatNum(netPct, 2)}%</td>
         <td class="num">${formatNum(d.pr, 1)}</td>
         <td class="num">${d.pr_actual > 0 ? formatNum(d.pr_actual, 1) : '—'}</td>
@@ -344,6 +473,103 @@ async function renderMuscle() {
     detailTbody.innerHTML = rows;
   }
 
+}
+
+/* ─── Show day sets modal ─── */
+async function showDaySets(exercise, dayKey) {
+  const modal = document.getElementById('day-sets-modal');
+  const body = document.getElementById('day-sets-body');
+  document.getElementById('day-sets-title').textContent = `Sets for ${dayKey} — ${exercise}`;
+  modal.style.display = 'flex';
+  body.innerHTML = '<div class="anomaly-loading">Loading...</div>';
+
+  try {
+    const sets = await fetchJSON(`/api/sets?exercise=${encodeURIComponent(exercise)}&date=${encodeURIComponent(dayKey)}`);
+    if (!sets || sets.length === 0) {
+      body.innerHTML = '<div class="anomaly-empty">No sets found for this day.</div>';
+      return;
+    }
+    let html = `<table class="anomaly-table"><thead><tr>
+      <th>#</th><th>Warmup</th><th>Weight</th><th>Reps</th><th>1RM</th><th>Actions</th>
+    </tr></thead><tbody>`;
+    for (const s of sets) {
+      const rm1 = s.weight > 0 && s.reps > 0 ? (s.weight * (1 + s.reps / 30)).toFixed(1) : '—';
+      html += `<tr data-id="${s.id}" data-weight="${s.weight}" data-reps="${s.reps}">
+        <td>${s.id}</td>
+        <td>${s.is_warmup ? 'Yes' : '—'}</td>
+        <td class="cell-weight">${s.weight}</td>
+        <td class="cell-reps">${s.reps}</td>
+        <td>${rm1}</td>
+        <td class="anomaly-actions">
+          <button class="anomaly-btn edit-btn">Edit</button>
+          <button class="anomaly-btn danger del-btn">Delete</button>
+        </td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    body.innerHTML = html;
+
+    body.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const tr = btn.closest('tr');
+        const weightTd = tr.querySelector('.cell-weight');
+        const repsTd = tr.querySelector('.cell-reps');
+        const origW = tr.dataset.weight;
+        const origR = tr.dataset.reps;
+
+        if (btn.dataset.editing === '1') {
+          const newW = parseFloat(weightTd.querySelector('input').value);
+          const newR = parseInt(repsTd.querySelector('input').value, 10);
+          if (isNaN(newW) || isNaN(newR)) return;
+          try {
+            await fetch(`/api/sets/${tr.dataset.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ weight: newW, reps: newR }) });
+            tr.dataset.weight = newW;
+            tr.dataset.reps = newR;
+            weightTd.textContent = newW;
+            repsTd.textContent = newR;
+          } catch (e) { alert('Save failed: ' + e.message); return; }
+          btn.textContent = 'Edit';
+          btn.classList.remove('save');
+          btn.dataset.editing = '0';
+          tr.querySelector('.cancel-btn')?.remove();
+          if (typeof renderMuscle === 'function') renderMuscle();
+          showDaySets(exercise, dayKey);
+        } else {
+          weightTd.innerHTML = `<input class="anomaly-edit-input" type="number" step="0.1" value="${origW}">`;
+          repsTd.innerHTML = `<input class="anomaly-edit-input" type="number" value="${origR}">`;
+          btn.textContent = 'Save';
+          btn.classList.add('save');
+          btn.dataset.editing = '1';
+          const cancelBtn = document.createElement('button');
+          cancelBtn.className = 'anomaly-btn cancel cancel-btn';
+          cancelBtn.textContent = 'Cancel';
+          btn.parentNode.insertBefore(cancelBtn, btn.nextSibling);
+          cancelBtn.addEventListener('click', () => {
+            weightTd.textContent = origW;
+            repsTd.textContent = origR;
+            btn.textContent = 'Edit';
+            btn.classList.remove('save');
+            btn.dataset.editing = '0';
+            cancelBtn.remove();
+          });
+        }
+      });
+    });
+
+    body.querySelectorAll('.del-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this set?')) return;
+        const tr = btn.closest('tr');
+        try {
+          await fetch(`/api/sets/${tr.dataset.id}`, { method: 'DELETE' });
+          if (typeof renderMuscle === 'function') renderMuscle();
+          showDaySets(exercise, dayKey);
+        } catch (e) { alert('Delete failed: ' + e.message); }
+      });
+    });
+  } catch (e) {
+    body.innerHTML = `<div class="anomaly-empty">Error: ${escapeHtml(e.message)}</div>`;
+  }
 }
 
 /* ════════════════════════════════════════════════════
@@ -378,31 +604,36 @@ function switchTab(tabId) {
 const PARAM_DEFS = [
   { key: 'fitness_window_days', label: 'Fitness Window (days)',            desc: 'Days for long-term fitness SMA.',            group: 'Neural Fatigue (TSS)', min: 14, max: 112, step: 1 },
   { key: 'fatigue_window_days', label: 'Fatigue Window (days)',            desc: 'Days for short-term fatigue SMA.',           group: 'Neural Fatigue (TSS)', min: 3, max: 28, step: 1 },
-  { key: 'rir_threshold',       label: 'RIR Threshold',                    desc: 'Max RIR to count as effective set.',         group: 'Muscle Dynamics',     min: 0, max: 5, step: 1 },
+  { key: 'rir_threshold',       label: 'RIR Threshold (%)',                desc: 'Max RIR as % of reps done.',                  group: 'Muscle Dynamics',     min: 0, max: 0.5, step: 0.05, default: 0.3, pct: true },
   { key: 'effective_window_days', label: 'Effective Window (days)',        desc: 'Days of effective sets to sum for growth.',  group: 'Muscle Dynamics',     min: 1, max: 10, step: 1 },
-  { key: 'growth_per_set',      label: 'Growth per Set',                   desc: 'PR growth per effective set.',               group: 'Muscle Dynamics',     min: 0.0001, max: 0.01, step: 0.0001, fmt: '0.0000', default: 0.001 },
-  { key: 'max_growth_per_day',  label: 'Max Growth/Day',                   desc: 'Max PR growth per day.',                     group: 'Muscle Dynamics',     min: 0.0001, max: 0.01, step: 0.0001, fmt: '0.0000', default: 0.003 },
-  { key: 'decay_per_day',       label: 'Decay per Day',                    desc: 'PR decay per rest day.',                     group: 'Muscle Dynamics',     min: 0.0001, max: 0.01, step: 0.0001, fmt: '0.0000', default: 0.001 },
-  { key: 'peak_floor_ratio',    label: 'Peak Floor Ratio',                 desc: 'Fraction of peak PR as minimum floor.',     group: 'Muscle Dynamics',     min: 0.3, max: 0.95, step: 0.01, fmt: '0.00', default: 0.7 },
-  { key: 'detrain_threshold',   label: 'Detrain Threshold',                desc: 'TSB % above which = Detrain.',               group: 'Training Zones',     min: 5, max: 50, step: 1 },
-  { key: 'overtrain_threshold', label: 'Overtrain Threshold',              desc: 'TSB % below which = Overtrain.',             group: 'Training Zones',     min: -50, max: -5, step: 1 },
+  { key: 'growth_per_set',      label: 'Growth per Set',                   desc: 'PR growth per effective set.',               group: 'Muscle Dynamics',     min: 0.0001, max: 0.01, step: 0.0001, fmt: '0.0000', default: 0.001, pct: true },
+  { key: 'max_growth_per_day',  label: 'Max Growth/Day',                   desc: 'Max PR growth per day.',                     group: 'Muscle Dynamics',     min: 0.0001, max: 0.01, step: 0.0001, fmt: '0.0000', default: 0.003, pct: true },
+  { key: 'decay_per_day',       label: 'Decay per Day',                    desc: 'PR decay per rest day.',                     group: 'Muscle Dynamics',     min: 0.0001, max: 0.01, step: 0.0001, fmt: '0.0000', default: 0.001, pct: true },
+  { key: 'peak_floor_ratio',    label: 'Peak Floor Ratio',                 desc: 'Fraction of peak PR as minimum floor.',     group: 'Muscle Dynamics',     min: 0.3, max: 0.95, step: 0.01, fmt: '0.00', default: 0.7, pct: true },
+  { key: 'decay_protection_days', label: 'Decay Protection (days)',         desc: 'Days without decay after effective session.', group: 'Muscle Dynamics',   min: 0, max: 30, step: 1 },
+  { key: 'detrain_threshold',   label: 'Detrain Threshold',                desc: 'TSB % above which = Detrain.',               group: 'Training Zones',     min: 5, max: 100, step: 1 },
+  { key: 'overtrain_threshold', label: 'Overtrain Threshold',              desc: 'TSB % below which = Overtrain.',             group: 'Training Zones',     min: -100, max: -5, step: 1 },
 ];
 
 function buildParamField(def, currentVal) {
-  const decPlaces = def.step < 1 ? (def.fmt ? def.fmt.split('.')[1].length : 4) : 0;
-  const valStr = Number(currentVal).toFixed(decPlaces);
+  const displayVal = def.pct ? currentVal * 100 : currentVal;
+  const displayMin = def.pct ? def.min * 100 : def.min;
+  const displayMax = def.pct ? def.max * 100 : def.max;
+  const displayStep = def.pct ? def.step * 100 : def.step;
+  const decPlaces = displayStep < 1 ? (def.fmt ? def.fmt.split('.')[1].length : 4) : 0;
+  const valStr = Number(displayVal).toFixed(decPlaces).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
   return `
     <div class="param-row">
       <div class="param-info">
-        <span class="param-label">${def.label}</span>
+        <span class="param-label">${def.label}${def.pct ? ' (%)' : ''}</span>
         <span class="param-desc">${def.desc}</span>
       </div>
       <div class="param-controls">
         <input type="range" class="param-slider" data-key="${def.key}"
-               min="${def.min}" max="${def.max}" step="${def.step}"
-               value="${currentVal}">
+               min="${displayMin}" max="${displayMax}" step="${displayStep}"
+               value="${displayVal}">
         <input type="number" class="param-number" data-key="${def.key}"
-               min="${def.min}" max="${def.max}" step="${def.step}"
+               min="${displayMin}" max="${displayMax}" step="${displayStep}"
                value="${valStr}">
       </div>
     </div>`;
@@ -433,8 +664,9 @@ async function renderSettings() {
       const num = document.querySelector(`.param-number[data-key="${slider.dataset.key}"]`);
       if (num) {
         const def = PARAM_DEFS.find(d => d.key === slider.dataset.key);
-        const dp = def && def.step < 1 ? (def.fmt ? def.fmt.split('.')[1].length : 4) : 0;
-        num.value = Number(slider.value).toFixed(dp);
+        const step = def && def.pct ? def.step * 100 : (def ? def.step : 1);
+        const dp = step < 1 ? (def.fmt ? def.fmt.split('.')[1].length : 4) : 0;
+        num.value = Number(slider.value).toFixed(dp).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
       }
     });
   });
@@ -453,7 +685,9 @@ async function renderSettings() {
   document.getElementById('btn-save-params').onclick = async () => {
     const updates = {};
     document.querySelectorAll('.param-slider').forEach(s => {
-      updates[s.dataset.key] = parseFloat(s.value);
+      const def = PARAM_DEFS.find(d => d.key === s.dataset.key);
+      const val = parseFloat(s.value);
+      updates[s.dataset.key] = def && def.pct ? val / 100 : val;
     });
     try {
       const res = await fetch('/api/params', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
@@ -474,7 +708,7 @@ async function renderSettings() {
         '<div class="alert info">Parameters restored to defaults.</div>';
     } catch (e) {
       document.getElementById('params-status').innerHTML =
-        `<div class="alert deload">Error: ${e.message}</div>`;
+        `<div class="alert deload">Error: ${escapeHtml(e.message)}</div>`;
     }
   };
 }
@@ -518,16 +752,97 @@ async function init() {
   setUpRangeHandlers('time-range-2', 'date-from-muscle', 'date-to-muscle', renderMuscle);
 
   const exercises = await fetchJSON('/api/exercises');
-  const sel = document.getElementById('exercise-select');
-  for (const ex of exercises) {
-    const opt = document.createElement('option');
-    opt.value = ex;
-    opt.textContent = ex;
-    sel.appendChild(opt);
+
+  const statusMap = new Map();
+  let statusFilterVal = '';
+  try {
+    let statusData = null;
+    const cached = sessionStorage.getItem('exercise-status');
+    if (cached) {
+      try { statusData = JSON.parse(cached); } catch (_) {}
+    }
+    if (!statusData) {
+      statusData = await fetchJSON('/api/exercise-status?reps=8');
+      if (statusData) sessionStorage.setItem('exercise-status', JSON.stringify(statusData));
+    }
+    if (statusData) {
+      for (const d of statusData) statusMap.set(d.exercise, d.status);
+    }
+  } catch (e) {
+    console.warn('Failed to load exercise status:', e);
   }
-  sel.addEventListener('change', renderMuscle);
+
+  const input = document.getElementById('exercise-input');
+  const suggestions = document.getElementById('exercise-suggestions');
+
+  function filterAndShowSuggestions() {
+    const q = input.value.toLowerCase().trim();
+    const matches = !q ? exercises : exercises.filter(ex => ex.toLowerCase().includes(q));
+    const filtered = statusFilterVal
+      ? matches.filter(ex => { const s = statusMap.get(ex); return s === undefined || s === statusFilterVal; })
+      : matches;
+    suggestions.innerHTML = '';
+    if (!filtered.length || q.length === 0 && filtered.length === exercises.length) {
+      suggestions.classList.remove('active');
+      return;
+    }
+    for (const ex of filtered) {
+      const item = document.createElement('div');
+      item.className = 'autocomplete-item';
+      item.textContent = ex;
+      item.addEventListener('mousedown', (e) => { e.preventDefault(); selectExercise(ex); });
+      suggestions.appendChild(item);
+    }
+    suggestions.classList.add('active');
+  }
+
+  function selectExercise(ex) {
+    input.value = ex;
+    suggestions.classList.remove('active');
+    suggestions.innerHTML = '';
+    fetchJSON('/api/last-reps?exercise=' + encodeURIComponent(ex)).then(reps => {
+      if (reps) document.getElementById('card-reps').value = reps;
+      renderMuscle();
+    });
+  }
+
+  function debounce(fn, ms) {
+    let timer;
+    return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+  }
+
+  input.addEventListener('input', debounce(filterAndShowSuggestions, 150));
+  input.addEventListener('focus', filterAndShowSuggestions);
+  input.addEventListener('blur', () => setTimeout(() => suggestions.classList.remove('active'), 200));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const active = suggestions.querySelector('.autocomplete-item');
+      if (active) { selectExercise(active.textContent); }
+    }
+  });
+
+  const statusFilter = document.getElementById('exercise-status-filter-select');
+  if (statusFilter) {
+    statusFilter.addEventListener('change', () => {
+      statusFilterVal = statusFilter.value;
+      const curStatus = statusMap.get(input.value);
+      if (statusFilterVal && curStatus !== undefined && curStatus !== statusFilterVal) {
+        input.value = '';
+        renderMuscle();
+      }
+      filterAndShowSuggestions();
+    });
+  }
 
   document.getElementById('card-reps').addEventListener('input', renderMuscle);
+  document.getElementById('reps-down').addEventListener('click', () => {
+    const inp = document.getElementById('card-reps');
+    if (parseInt(inp.value) > parseInt(inp.min)) { inp.stepDown(); inp.dispatchEvent(new Event('input')); }
+  });
+  document.getElementById('reps-up').addEventListener('click', () => {
+    const inp = document.getElementById('card-reps');
+    if (parseInt(inp.value) < parseInt(inp.max)) { inp.stepUp(); inp.dispatchEvent(new Event('input')); }
+  });
 
   /* Sync 2nd time range selector with 1st */
   document.getElementById('time-range').addEventListener('change', () => {
@@ -537,7 +852,143 @@ async function init() {
     document.getElementById('time-range').value = document.getElementById('time-range-2').value;
   });
 
+  /* CSV import */
+  document.getElementById('csv-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('import-status');
+    statusEl.textContent = 'Importing...';
+    try {
+      const text = await file.text();
+      const res = await fetch('/api/import-csv', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text });
+      const result = await res.json();
+      if (result.error) throw new Error(result.error);
+      const parts = [];
+      if (result.imported > 0) parts.push(`Imported ${result.imported} new sets`);
+      if (result.duplicates > 0) parts.push(`${result.duplicates} duplicates skipped`);
+      if (result.skipped.cardio > 0 || result.skipped.zeroReps > 0 || result.skipped.other > 0)
+        parts.push(`Skipped ${result.skipped.cardio + result.skipped.zeroReps + result.skipped.other} rows`);
+      statusEl.textContent = parts.join(', ');
+      if (result.imported > 0) renderTSS();
+    } catch (err) {
+      statusEl.textContent = 'Error: ' + err.message;
+    }
+    e.target.value = '';
+  });
+
+  /* Anomaly modal */
+  const modal = document.getElementById('anomaly-modal');
+  const modalBody = document.getElementById('anomaly-body');
+
+  function closeModal() { modal.style.display = 'none'; }
+
+  document.querySelector('.modal-close').addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+  /* Day sets modal close */
+  const dsModal = document.getElementById('day-sets-modal');
+  dsModal.querySelector('.day-sets-close').addEventListener('click', () => { dsModal.style.display = 'none'; });
+  dsModal.addEventListener('click', (e) => { if (e.target === dsModal) dsModal.style.display = 'none'; });
+
+  document.getElementById('check-data-btn').addEventListener('click', async () => {
+    modal.style.display = 'flex';
+    modalBody.innerHTML = '<div class="anomaly-loading">Checking data...</div>';
+    try {
+      const anomalies = await fetchJSON('/api/anomalies');
+      if (anomalies.length === 0) {
+        modalBody.innerHTML = '<div class="anomaly-empty">No anomalies found.</div>';
+        return;
+      }
+      let html = `<table class="anomaly-table"><thead><tr>
+        <th>Date</th><th>Exercise</th><th>Weight</th><th>Reps</th><th>1RM</th><th>Issue</th><th>Actions</th>
+      </tr></thead><tbody>`;
+      for (const a of anomalies) {
+        const reasonsStr = a.reasons.map(r => {
+          const cls = r.includes('above') || r.includes('extra digit') || r.includes('doubled weight') ? 'anomaly-reason-above' : r.includes('below') ? 'anomaly-reason-below' : '';
+          return `<span class="anomaly-reason ${cls}">${r}</span>`;
+        }).join(' ');
+        html += `<tr data-id="${a.id}" data-weight="${a.weight}" data-reps="${a.reps}">
+          <td>${a.day_key}</td>
+          <td>${escapeHtml(a.exercise)}</td>
+          <td class="cell-weight">${a.weight}</td>
+          <td class="cell-reps">${a.reps}</td>
+          <td>${a.epley_1rm}</td>
+          <td>${reasonsStr}</td>
+          <td class="anomaly-actions">
+            <button class="anomaly-btn edit-btn">Edit</button>
+            <button class="anomaly-btn danger del-btn">Delete</button>
+          </td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+      modalBody.innerHTML = html;
+
+      modalBody.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const tr = btn.closest('tr');
+          const weightTd = tr.querySelector('.cell-weight');
+          const repsTd = tr.querySelector('.cell-reps');
+          const origW = tr.dataset.weight;
+          const origR = tr.dataset.reps;
+
+          if (btn.dataset.editing === '1') {
+            const newW = parseFloat(weightTd.querySelector('input').value);
+            const newR = parseInt(repsTd.querySelector('input').value, 10);
+            if (isNaN(newW) || isNaN(newR)) return;
+            try {
+              await fetch(`/api/sets/${tr.dataset.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ weight: newW, reps: newR }) });
+              tr.dataset.weight = newW;
+              tr.dataset.reps = newR;
+              weightTd.textContent = newW;
+              repsTd.textContent = newR;
+            } catch (e) { alert('Save failed: ' + e.message); return; }
+            btn.textContent = 'Edit';
+            btn.classList.remove('save');
+            btn.dataset.editing = '0';
+            tr.querySelector('.cancel-btn')?.remove();
+          } else {
+            weightTd.innerHTML = `<input class="anomaly-edit-input" type="number" step="0.1" value="${origW}">`;
+            repsTd.innerHTML = `<input class="anomaly-edit-input" type="number" value="${origR}">`;
+            btn.textContent = 'Save';
+            btn.classList.add('save');
+            btn.dataset.editing = '1';
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'anomaly-btn cancel cancel-btn';
+            cancelBtn.textContent = 'Cancel';
+            btn.parentNode.insertBefore(cancelBtn, btn.nextSibling);
+            cancelBtn.addEventListener('click', () => {
+              weightTd.textContent = origW;
+              repsTd.textContent = origR;
+              btn.textContent = 'Edit';
+              btn.classList.remove('save');
+              btn.dataset.editing = '0';
+              cancelBtn.remove();
+            });
+          }
+        });
+      });
+
+      modalBody.querySelectorAll('.del-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Delete this set?')) return;
+          const tr = btn.closest('tr');
+          try {
+            await fetch(`/api/sets/${tr.dataset.id}`, { method: 'DELETE' });
+            tr.remove();
+            if (modalBody.querySelectorAll('.anomaly-table tbody tr').length === 0) {
+              modalBody.innerHTML = '<div class="anomaly-empty">No anomalies found after delete.</div>';
+            }
+          } catch (e) { alert('Delete failed: ' + e.message); }
+        });
+      });
+    } catch (e) {
+      modalBody.innerHTML = `<div class="anomaly-empty">Error: ${e.message}</div>`;
+    }
+  });
+
   /* Initial render */
+  document.getElementById('time-range').value = '30';
+  document.getElementById('time-range-2').value = '30';
   renderTSS();
 }
 
