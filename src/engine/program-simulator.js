@@ -1,6 +1,6 @@
 const db = require('../database');
 const { computeEpley1RM } = require('./muscle-dynamics');
-const { computeSetTSS, computeSMA, checkDeload } = require('./neural-fatigue');
+const { computeSetTSS, computeSMA, checkDeload, getExerciseMultiplier } = require('./neural-fatigue');
 const { getParams } = require('../params');
 const { analyzeExercise } = require('./exercise-analyzer');
 
@@ -116,7 +116,8 @@ function simulateProgram(programId, weeksOverride) {
             }
           }
 
-          dailyTSS += setTSS;
+          const exTSS = setTSS * getExerciseMultiplier(ex.exercise_name);
+          dailyTSS += exTSS;
           state.effectiveHistory[0] = effCount;
           if (effCount > 0) state.lastEffectiveDay = cd;
 
@@ -134,6 +135,7 @@ function simulateProgram(programId, weeksOverride) {
             weight: Math.round(useWeight * 10) / 10,
             reps: useReps,
             sets: ex.sets,
+            tss: Math.round(exTSS * 10) / 10,
             predicted_1rm: Math.round(state.predictedPR * 10) / 10,
             effective_sets: effCount,
             min_reps: ex.min_reps,
@@ -141,7 +143,6 @@ function simulateProgram(programId, weeksOverride) {
           });
 
           if (!isDeload && effCount > 0) {
-            state.currentReps++;
             const effRIR = Math.round(ex.min_reps * RIR);
             const nextWeight = state.predictedPR > 0
               ? Math.round(state.predictedPR * 30 / (30 + ex.min_reps + effRIR) / ex.min_increment) * ex.min_increment
@@ -149,6 +150,13 @@ function simulateProgram(programId, weeksOverride) {
             if (nextWeight >= state.currentWeight + ex.min_increment) {
               state.currentWeight = nextWeight;
               state.currentReps = ex.min_reps;
+            } else {
+              const maxRepsAtWeight = state.predictedPR > 0 && state.currentWeight > 0
+                ? Math.floor(30 * (state.predictedPR / state.currentWeight - 1))
+                : 0;
+              if (state.currentReps + 1 <= maxRepsAtWeight) {
+                state.currentReps++;
+              }
             }
           }
         }

@@ -1,3 +1,13 @@
+const ISO_KEYWORDS = ['calf','leg extension','leg curl','lateral raise','front raise','fly','cable cross','tricep','bicep curl','curl','extension','raise','kickback','pullover','isolated','pec deck','reverse fly','face pull'];
+const LOW_KEYWORDS = ['forearm', 'wrist', 'grip', 'calf'];
+
+function getExerciseMultiplier(name) {
+  const n = (name || '').toLowerCase();
+  if (LOW_KEYWORDS.some(kw => n.includes(kw))) return 0.25;
+  if (ISO_KEYWORDS.some(kw => n.includes(kw))) return 0.5;
+  return 1;
+}
+
 function computeSetTSS(weight, reps, bodyweight) {
   if (bodyweight <= 0 || weight <= 0 || reps <= 0) return 0;
   const rm1 = weight * (1 + reps / 30);
@@ -32,5 +42,6 @@ module.exports = {
   computeSetTSS,
   computeDailyTSS,
   computeSMA,
-  checkDeload
+  checkDeload,
+  getExerciseMultiplier
 };

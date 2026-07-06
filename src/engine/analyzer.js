@@ -1,4 +1,4 @@
-const { computeSetTSS, computeSMA, checkDeload } = require('./neural-fatigue');
+const { computeSetTSS, computeSMA, checkDeload, getExerciseMultiplier } = require('./neural-fatigue');
 const { computeEpley1RM } = require('./muscle-dynamics');
 const db = require('../database');
 const { getParams } = require('../params');
@@ -79,7 +79,7 @@ function runAnalysis() {
 
         let exTSS = 0;
         for (const s of sets) {
-          const tss = computeSetTSS(s.weight, s.reps, params.bodyweight || 70);
+          const tss = computeSetTSS(s.weight, s.reps, params.bodyweight || 70) * getExerciseMultiplier(s.exercise);
           dailyTSS += tss;
           exTSS += tss;
         }

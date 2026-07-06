@@ -1130,4 +1130,8 @@ th {
   flex-wrap: wrap;
 }
 
+.weight-up { color: #3fb950; font-weight: bold; }
+.weight-down { color: #f85149; }
+.sim-total-row td { border-top: 2px solid #30363d; font-weight: bold; }
+
 

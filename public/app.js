@@ -819,6 +819,8 @@ async function showSimulation(data) {
 
   // Week-by-week schedule with day cards
   let tableHtml = '<div class="chart-container"><h2>Program Details</h2>';
+  const lastExWeight = {};
+  const lastExReps = {};
   for (const week of data.weeks) {
     tableHtml += `<div style="margin-bottom:16px"><h3 style="color:#58a6ff;margin-bottom:8px;font-size:0.9rem">Week ${week.week}</h3><div style="display:flex;flex-wrap:wrap;gap:12px">`;
     for (const day of week.days) {
@@ -828,10 +830,20 @@ async function showSimulation(data) {
       const rowClass = isDayDeload ? 'deload-row' : '';
       tableHtml += `<div class="${boxClass}"><div class="program-day-box-header">${dayHeader}</div>`;
       if (day.exercises && day.exercises.length > 0) {
-        tableHtml += `<table class="program-sim-day-table"><thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th><th>Sets</th></tr></thead><tbody>`;
+        tableHtml += `<table class="program-sim-day-table"><thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th><th>Sets</th><th>TSS</th></tr></thead><tbody>`;
         for (const ex of day.exercises) {
-          tableHtml += `<tr class="${rowClass}"><td>${escapeHtml(ex.name)}</td><td>${ex.weight} kg</td><td>${ex.reps}</td><td>${ex.sets}</td></tr>`;
+          const prevW = lastExWeight[ex.name];
+          const prevR = lastExReps[ex.name];
+          const wCls = prevW !== undefined && ex.weight > prevW ? ' class="weight-up"' : '';
+          const rCls = prevR !== undefined && ex.reps > prevR ? ' class="weight-up"' : '';
+          if (!day.is_deload) {
+            lastExWeight[ex.name] = ex.weight;
+            lastExReps[ex.name] = ex.reps;
+          }
+          tableHtml += `<tr class="${rowClass}"><td>${escapeHtml(ex.name)}</td><td${wCls}>${ex.weight} kg</td><td${rCls}>${ex.reps}</td><td>${ex.sets}</td>`;
+          tableHtml += `<td>${ex.tss !== undefined ? ex.tss : '—'}</td></tr>`;
         }
+        tableHtml += `<tr class="sim-total-row"><td colspan="4"><strong>Total</strong></td><td><strong>${day.tss}</strong></td></tr>`;
         tableHtml += `</tbody></table>`;
       } else {
         tableHtml += `<div style="padding:8px;color:#8b949e;font-size:0.8rem;text-align:center">Rest day</div>`;
@@ -854,7 +866,9 @@ async function showSimulation(data) {
           tr.querySelector('.prog-ex-start').textContent = w.start_weight + ' kg';
           tr.querySelector('.prog-ex-end').textContent = w.end_weight + ' kg';
           const pct = ((w.end_weight - w.start_weight) / w.start_weight * 100).toFixed(1);
-          tr.querySelector('.prog-ex-change').textContent = (w.end_weight >= w.start_weight ? '+' : '') + pct + '%';
+          const changeEl = tr.querySelector('.prog-ex-change');
+          changeEl.textContent = (w.end_weight >= w.start_weight ? '+' : '') + pct + '%';
+          changeEl.className = 'prog-ex-change' + (w.end_weight > w.start_weight ? ' weight-up' : w.end_weight < w.start_weight ? ' weight-down' : '');
           break;
         }
       }
