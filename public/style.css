@@ -901,4 +901,233 @@ th {
   color: #c9d1d9;
 }
 
+/* ---- Program Building ---- */
+#program-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+#program-sidebar {
+  flex: 0 0 240px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+}
+#program-sidebar h3 {
+  font-size: 0.9rem;
+  color: #c9d1d9;
+  margin-bottom: 12px;
+}
+#program-main {
+  flex: 1;
+  min-width: 0;
+}
+.program-list-item {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: #c9d1d9;
+  cursor: pointer;
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+.program-list-item:hover {
+  background: #1c2128;
+}
+.program-list-item.active {
+  background: #1c2128;
+  color: #58a6ff;
+  font-weight: 600;
+}
+.program-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.program-name-input {
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 1rem;
+  flex: 1;
+  min-width: 150px;
+}
+.program-name-input:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+.program-weeks-label {
+  font-size: 0.85rem;
+  color: #c9d1d9;
+  white-space: nowrap;
+}
+.program-weeks-input {
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  width: 60px;
+  text-align: center;
+}
+.program-weeks-input:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+.btn-secondary.danger {
+  color: #f85149;
+}
+.btn-secondary.danger:hover {
+  background: #3d0000;
+  border-color: #f85149;
+}
+.btn-secondary.small, .btn-primary.small {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+}
+.program-day-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.program-day-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.program-day-name {
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  width: 200px;
+}
+.program-day-name:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+.program-ex-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+}
+.program-ex-table th {
+  text-align: left;
+  padding: 4px 6px;
+  color: #8b949e;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  border-bottom: 1px solid #30363d;
+}
+.program-ex-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid #21262d;
+}
+.prog-ex-start, .prog-ex-end {
+  display: inline-block;
+  font-size: 0.8rem;
+  color: #8b949e;
+  font-variant-numeric: tabular-nums;
+  min-width: 55px;
+  text-align: right;
+}
+.program-ex-table input {
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-size: 0.8rem;
+}
+.program-ex-table input:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+.prog-add-ex-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.prog-add-ex-row input {
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 3px;
+  padding: 4px 6px;
+  font-size: 0.8rem;
+}
+.prog-add-ex-row input:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+
+/* ---- Program simulation day boxes ---- */
+.program-day-box {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 280px;
+  flex: 1 1 280px;
+}
+.program-day-box.deload {
+  border-color: #d29922;
+  border-style: dashed;
+  opacity: 0.8;
+}
+.program-sim-day-table .deload-row td {
+  color: #8b949e;
+}
+.program-day-box-header {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #c9d1d9;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #30363d;
+}
+.program-sim-day-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.program-sim-day-table th {
+  text-align: left;
+  padding: 3px 6px;
+  color: #8b949e;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  border-bottom: 1px solid #21262d;
+}
+.program-sim-day-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid #161b22;
+}
+
+/* ---- Program sim chart container ---- */
+#program-sim-chart-container canvas {
+  min-height: 400px;
+}
+
+/* ---- Calendar export ---- */
+.calendar-export-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 

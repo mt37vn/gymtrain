@@ -1,6 +1,6 @@
 /* ─── Utilities ─── */
-async function fetchJSON(url) {
-  const res = await fetch(url);
+async function fetchJSON(url, options) {
+  const res = await fetch(url, options);
   return res.json();
 }
 
@@ -73,8 +73,9 @@ function destroyCharts(keys) {
 const fatigueZonePlugin = {
   id: 'fatigueZones',
   beforeDraw(chart) {
-    const { ctx, chartArea: { left, right, top, bottom }, scales } = chart;
-    if (!left || !scales) return;
+    const { ctx, chartArea, scales } = chart;
+    if (!chartArea || !scales) return;
+    const { left, right, bottom } = chartArea;
 
     const pluginOpts = chart.options.plugins && chart.options.plugins.fatigueZones;
     const statusColors = pluginOpts && pluginOpts.statusColors;
@@ -594,7 +595,295 @@ function switchTab(tabId) {
     renderMuscle();
   } else if (tabId === 'settings') {
     renderSettings();
+  } else if (tabId === 'program') {
+    renderProgramTab();
   }
+}
+
+/* ════════════════════════════════════════════════════
+   TAB: Program Building
+   ════════════════════════════════════════════════════ */
+
+let currentProgramId = null;
+let programChart = null;
+
+async function renderProgramTab() {
+  const res = await fetchJSON('/api/programs');
+  const list = document.getElementById('program-list-items');
+  list.innerHTML = res.map(p =>
+    `<div class="program-list-item ${p.id === currentProgramId ? 'active' : ''}" data-id="${p.id}">${escapeHtml(p.name)} (${p.weeks}w)</div>`
+  ).join('');
+
+  list.querySelectorAll('.program-list-item').forEach(el => {
+    el.addEventListener('click', () => {
+      currentProgramId = parseInt(el.dataset.id);
+      loadProgram(currentProgramId);
+      renderProgramTab();
+    });
+  });
+
+  if (currentProgramId) loadProgram(currentProgramId);
+  else {
+    document.getElementById('program-editor').style.display = 'none';
+    document.getElementById('program-simulation').style.display = 'none';
+    document.getElementById('program-empty').style.display = 'block';
+  }
+}
+
+async function loadProgram(id) {
+  const p = await fetchJSON('/api/programs/' + id);
+  if (!p) return;
+  document.getElementById('program-empty').style.display = 'none';
+  document.getElementById('program-editor').style.display = 'block';
+  document.getElementById('program-name').value = p.name;
+  document.getElementById('program-weeks').value = p.weeks;
+  document.getElementById('program-days-per-week').value = p.days_per_week || p.days.length;
+
+  const container = document.getElementById('program-days-container');
+  container.innerHTML = p.days.map((d, idx) => `
+    <div class="program-day-card" data-day-id="${d.id}">
+      <div class="program-day-header">
+        <input type="text" class="program-day-name" value="${escapeHtml(d.name || ('Day ' + (idx + 1)))}" placeholder="Day ${idx + 1}">
+        <button class="btn-secondary small danger del-day-btn" style="margin-left:auto">×</button>
+      </div>
+      <table class="program-ex-table">
+        <thead><tr><th>Exercise</th><th>Sets</th><th>Min Reps</th><th>Max Reps</th><th>Increment</th><th>RIR</th><th>Start</th><th>End</th><th></th></tr></thead>
+        <tbody>
+          ${d.exercises.map(ex => `
+            <tr data-ex-id="${ex.id}">
+              <td><input type="text" class="prog-ex-name" value="${escapeHtml(ex.exercise_name)}"></td>
+              <td><input type="number" class="prog-ex-sets" value="${ex.sets}" min="1" max="20" style="width:50px"></td>
+              <td><input type="number" class="prog-ex-minreps" value="${ex.min_reps}" min="1" max="30" style="width:50px"></td>
+              <td><input type="number" class="prog-ex-maxreps" value="${ex.max_reps}" min="1" max="30" style="width:50px"></td>
+              <td><input type="number" class="prog-ex-inc" value="${ex.min_increment}" min="0.5" max="25" step="0.5" style="width:60px"></td>
+              <td><input type="number" class="prog-ex-rir" value="${ex.rir}" min="0" max="5" style="width:50px"></td>
+              <td><span class="prog-ex-start">—</span></td>
+              <td><span class="prog-ex-end">—</span></td>
+              <td><button class="btn-secondary small danger del-ex-btn">×</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <div class="prog-add-ex-row">
+        <input type="text" class="prog-new-ex-name" placeholder="Exercise name..." list="exercise-datalist">
+        <input type="number" class="prog-new-ex-sets" value="3" min="1" max="20" style="width:50px" title="Sets">
+        <input type="number" class="prog-new-ex-minreps" value="8" min="1" max="30" style="width:50px" title="Min reps">
+        <input type="number" class="prog-new-ex-maxreps" value="12" min="1" max="30" style="width:50px" title="Max reps">
+        <input type="number" class="prog-new-ex-inc" value="2.5" min="0.5" max="25" step="0.5" style="width:60px" title="Min increment">
+        <input type="number" class="prog-new-ex-rir" value="2" min="0" max="5" style="width:50px" title="RIR">
+        <button class="btn-primary small add-ex-btn">Add</button>
+      </div>
+    </div>
+  `).join('');
+
+  // Wire day name changes
+  container.querySelectorAll('.program-day-name').forEach(inp => {
+    inp.addEventListener('change', async () => {
+      const card = inp.closest('.program-day-card');
+      await fetchJSON('/api/program-days/' + card.dataset.dayId, { method: 'PUT', body: JSON.stringify({ name: inp.value }) });
+    });
+  });
+
+  // Wire del day buttons
+  container.querySelectorAll('.del-day-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this day and all its exercises?')) return;
+      const card = btn.closest('.program-day-card');
+      await fetch('/api/program-days/' + card.dataset.dayId, { method: 'DELETE' });
+      loadProgram(currentProgramId);
+    });
+  });
+
+  // Wire exercise delete buttons
+  container.querySelectorAll('.del-ex-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const tr = btn.closest('tr');
+      await fetch('/api/program-exercises/' + tr.dataset.exId, { method: 'DELETE' });
+      loadProgram(currentProgramId);
+    });
+  });
+
+  // Wire add exercise buttons
+  container.querySelectorAll('.add-ex-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('.prog-add-ex-row');
+      const dayCard = btn.closest('.program-day-card');
+      const name = row.querySelector('.prog-new-ex-name').value.trim();
+      if (!name) return;
+      const sets = parseInt(row.querySelector('.prog-new-ex-sets').value) || 3;
+      const minReps = parseInt(row.querySelector('.prog-new-ex-minreps').value) || 8;
+      const maxReps = parseInt(row.querySelector('.prog-new-ex-maxreps').value) || 12;
+      const inc = parseFloat(row.querySelector('.prog-new-ex-inc').value) || 2.5;
+      const rir = parseInt(row.querySelector('.prog-new-ex-rir').value) || 2;
+      await fetch('/api/program-days/' + dayCard.dataset.dayId + '/exercises', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exercise_name: name, sets, min_reps: minReps, max_reps: maxReps, min_increment: inc, rir })
+      });
+      loadProgram(currentProgramId);
+    });
+  });
+
+  // Wire exercise field changes (auto-save on blur)
+  container.querySelectorAll('.prog-ex-name, .prog-ex-sets, .prog-ex-minreps, .prog-ex-maxreps, .prog-ex-inc, .prog-ex-rir').forEach(inp => {
+    inp.addEventListener('change', async () => {
+      const tr = inp.closest('tr');
+      const fields = {
+        exercise_name: tr.querySelector('.prog-ex-name').value,
+        sets: parseInt(tr.querySelector('.prog-ex-sets').value),
+        min_reps: parseInt(tr.querySelector('.prog-ex-minreps').value),
+        max_reps: parseInt(tr.querySelector('.prog-ex-maxreps').value),
+        min_increment: parseFloat(tr.querySelector('.prog-ex-inc').value),
+        rir: parseInt(tr.querySelector('.prog-ex-rir').value)
+      };
+      await fetch('/api/program-exercises/' + tr.dataset.exId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields)
+      });
+    });
+  });
+
+  loadProgramSimulation(id);
+}
+
+function loadProgramSimulation(id) {
+  const weeks = parseInt(document.getElementById('program-weeks').value) || 4;
+  fetchJSON('/api/programs/' + id + '/simulate?weeks=' + weeks).then(data => {
+    if (!data || !data.weeks) return;
+    document.getElementById('program-simulation').style.display = 'block';
+    showSimulation(data);
+  }).catch(() => {});
+}
+
+async function showSimulation(data) {
+  const tableDiv = document.getElementById('program-sim-table');
+
+  // Build chart data
+  const labels = [];
+  const tssVals = [];
+  const ctlVals = [];
+  const atlVals = [];
+  const tsbVals = [];
+
+  for (const week of data.weeks) {
+    for (const day of week.days) {
+      const label = `W${week.week} D${day.day}`;
+      labels.push(label);
+      tssVals.push(day.tss);
+      ctlVals.push(day.ctl);
+      atlVals.push(day.atl);
+      tsbVals.push(day.tsb);
+    }
+  }
+
+  const params = await fetchJSON('/api/params');
+  const overtrainTh = params.overtrain_threshold || -20;
+
+  const deloadWeeks = new Set();
+  for (const week of data.weeks) {
+    const wTsbVals = week.days.map(d => d.tsb).filter(v => v !== undefined && v !== null);
+    if (wTsbVals.length > 0) {
+      const avgTsb = wTsbVals.reduce((a, b) => a + b, 0) / wTsbVals.length;
+      if (avgTsb < overtrainTh) deloadWeeks.add(week.week);
+    }
+  }
+
+  if (window.programChart) window.programChart.destroy();
+
+  const statusColors = tsbVals.map((tsb, i) => trainingStatus(tsb, ctlVals[i], 20, overtrainTh).cls);
+
+  window.programChart = new Chart(document.getElementById('programSimChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'TSS', data: tssVals, borderColor: '#d29922', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3 },
+        { label: 'Fitness (CTL)', data: ctlVals, borderColor: '#3fb950', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3 },
+        { label: 'Fatigue (ATL)', data: atlVals, borderColor: '#f85149', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3 },
+        { label: 'Zero', data: Array(labels.length).fill(0), borderColor: 'rgba(201,209,217,0.5)', tension: 0, pointRadius: 0, pointHitRadius: 0, pointHoverRadius: 0 },
+        { label: 'TSB', data: tsbVals, borderColor: '#58a6ff', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3 }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      layout: { padding: { bottom: 60, right: 70 } },
+      plugins: {
+        fatigueZones: { statusColors },
+        legend: {
+          labels: { color: '#c9d1d9', filter: function(item) { return item.text !== 'Zero'; } }
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          filter: function(item) { return item.datasetIndex !== 3; }
+        }
+      },
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+
+  buildLegend('program-sim-legend', 20, overtrainTh);
+
+  // Week-by-week schedule with day cards
+  let tableHtml = '<div class="chart-container"><h2>Program Details</h2>';
+  for (const week of data.weeks) {
+    const isDeload = deloadWeeks.has(week.week);
+    const boxClass = isDeload ? 'program-day-box deload' : 'program-day-box';
+    tableHtml += `<div style="margin-bottom:16px"><h3 style="color:#58a6ff;margin-bottom:8px;font-size:0.9rem">Week ${week.week}${isDeload ? ' (Deload)' : ''}</h3><div style="display:flex;flex-wrap:wrap;gap:12px">`;
+    for (const day of week.days) {
+      const dayHeader = isDeload ? escapeHtml(day.day_name) + ' (Deload)' : escapeHtml(day.day_name);
+      const rowClass = isDeload ? 'deload-row' : '';
+      tableHtml += `<div class="${boxClass}"><div class="program-day-box-header">${dayHeader}</div><table class="program-sim-day-table"><thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th><th>Sets</th></tr></thead><tbody>`;
+      for (const ex of day.exercises) {
+        tableHtml += `<tr class="${rowClass}"><td>${escapeHtml(ex.name)}</td><td>${ex.weight} kg</td><td>${ex.reps}</td><td>${ex.sets}</td></tr>`;
+      }
+      tableHtml += `</tbody></table></div>`;
+    }
+    tableHtml += '</div></div>';
+  }
+  tableHtml += '</div>';
+
+  tableDiv.innerHTML = tableHtml;
+
+  // Populate start/end weight cells from exercise_summary
+  if (data.exercise_summary) {
+    for (const [name, w] of Object.entries(data.exercise_summary)) {
+      const inputs = document.querySelectorAll('.prog-ex-name');
+      for (const inp of inputs) {
+        if (inp.value === name) {
+          const tr = inp.closest('tr');
+          tr.querySelector('.prog-ex-start').textContent = w.start_weight + ' kg';
+          tr.querySelector('.prog-ex-end').textContent = w.end_weight + ' kg';
+          break;
+        }
+      }
+    }
+  }
+
+  document.getElementById('program-simulation').style.display = 'block';
+  document.getElementById('program-calendar-export').style.display = 'block';
+
+  // Set default start date to tomorrow
+  const dateInput = document.getElementById('program-ical-date');
+  if (!dateInput.value) {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    dateInput.value = tomorrow.toISOString().slice(0, 10);
+  }
+}
+
+function cssId(str) {
+  return str.replace(/[^a-z0-9]/gi, '_');
 }
 
 /* ════════════════════════════════════════════════════
@@ -752,6 +1041,8 @@ async function init() {
   setUpRangeHandlers('time-range-2', 'date-from-muscle', 'date-to-muscle', renderMuscle);
 
   const exercises = await fetchJSON('/api/exercises');
+  const dl = document.getElementById('exercise-datalist');
+  if (dl) dl.innerHTML = exercises.map(ex => `<option value="${escapeHtml(ex)}">`).join('');
 
   const statusMap = new Map();
   let statusFilterVal = '';
@@ -986,6 +1277,61 @@ async function init() {
     }
   });
 
+  /* Program top-level buttons */
+  document.getElementById('btn-new-program').addEventListener('click', async () => {
+    const name = prompt('Program name:');
+    if (!name) return;
+    const daysPerWeek = parseInt(prompt('Days per week (default 3):') || '3', 10);
+    const res = await fetchJSON('/api/programs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, weeks: 4, days_per_week: daysPerWeek }) });
+    currentProgramId = res.id;
+    renderProgramTab();
+  });
+
+  document.getElementById('btn-save-program').addEventListener('click', async () => {
+    if (!currentProgramId) return;
+    const name = document.getElementById('program-name').value.trim();
+    const weeks = parseInt(document.getElementById('program-weeks').value) || 4;
+    const daysPerWeekEl = document.getElementById('program-days-per-week');
+    const daysPerWeek = daysPerWeekEl.value ? parseInt(daysPerWeekEl.value) : null;
+    await fetch('/api/programs/' + currentProgramId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, weeks, days_per_week: daysPerWeek })
+    });
+    renderProgramTab();
+  });
+
+  document.getElementById('btn-delete-program').addEventListener('click', async () => {
+    if (!currentProgramId || !confirm('Delete this entire program?')) return;
+    await fetch('/api/programs/' + currentProgramId, { method: 'DELETE' });
+    currentProgramId = null;
+    renderProgramTab();
+  });
+
+  document.getElementById('btn-add-day').addEventListener('click', async () => {
+    if (!currentProgramId) return;
+    const p = await fetchJSON('/api/programs/' + currentProgramId);
+    const nextDay = (p.days ? p.days.length : 0) + 1;
+    await fetch('/api/programs/' + currentProgramId + '/days', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ day_number: nextDay, name: 'Day ' + nextDay })
+    });
+    loadProgram(currentProgramId);
+  });
+
+  document.getElementById('btn-simulate').addEventListener('click', () => {
+    if (currentProgramId) loadProgramSimulation(currentProgramId);
+  });
+
+  document.getElementById('btn-export-ical').addEventListener('click', () => {
+    if (!currentProgramId) return;
+    const weeks = parseInt(document.getElementById('program-weeks').value) || 4;
+    const startDate = document.getElementById('program-ical-date').value;
+    if (!startDate) { alert('Please select a start date.'); return; }
+    window.open(`/api/programs/${currentProgramId}/ical?weeks=${weeks}&start_date=${startDate}`);
+  });
+
   /* Initial render */
   document.getElementById('time-range').value = '30';
   document.getElementById('time-range-2').value = '30';
@@ -993,3 +1339,12 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+window.createNewProgram = async function() {
+  const name = prompt('Program name:');
+  if (!name) return;
+  const daysPerWeek = parseInt(prompt('Days per week (default 3):') || '3', 10);
+  const res = await fetchJSON('/api/programs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, weeks: 4, days_per_week: daysPerWeek }) });
+  currentProgramId = res.id;
+  renderProgramTab();
+};

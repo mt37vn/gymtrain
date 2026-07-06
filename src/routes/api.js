@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../database');
 const { analyzeExercise } = require('../engine/exercise-analyzer');
+const { simulateProgram, suggestWeight } = require('../engine/program-simulator');
 const { parseCSVContent } = require('../csv-parser');
 const { runAnalysis } = require('../engine/analyzer');
 const { getParams, saveParams, resetParams } = require('../params');
@@ -211,6 +212,162 @@ function computeWeightRIR3(pre, reps) {
 function computeWeightRIR0(pre, reps) {
   return Math.floor(pre * 30 / (30 + reps) * 10) / 10;
 }
+
+/* ─── Program Building ─── */
+
+router.get('/programs/suggest-weight', (req, res) => {
+  const { exercise, min_reps, rir } = req.query;
+  if (!exercise || !min_reps) return res.json({ weight: 0, predicted_1rm: 0 });
+  res.json(suggestWeight(exercise, parseInt(min_reps), parseInt(rir) || 2));
+});
+
+router.get('/programs', (req, res) => {
+  res.json(db.getAllPrograms());
+});
+
+router.post('/programs', express.json(), (req, res) => {
+  const id = db.createProgram(req.body.name, req.body.weeks || 4, req.body.days_per_week);
+  res.json({ id });
+});
+
+router.get('/programs/:id/ical', (req, res) => {
+  const program = db.getProgram(parseInt(req.params.id));
+  if (!program) return res.status(404).json({ error: 'Not found' });
+
+  const uniqueDays = program.days.length;
+  const daysPerWeek = program.days_per_week || uniqueDays;
+  const weeks = parseInt(req.query.weeks) || program.weeks;
+  const startDateStr = req.query.start_date;
+  if (!startDateStr) return res.status(400).json({ error: 'start_date query param required (YYYY-MM-DD)' });
+
+  const startDate = new Date(startDateStr + 'T00:00:00');
+  const totalDays = weeks * daysPerWeek;
+
+  const params = getParams();
+  const overtrainTh = params.overtrain_threshold || -20;
+
+  const sim = simulateProgram(parseInt(req.params.id), weeks);
+  const deloadWeeks = new Set();
+  if (sim && sim.weeks) {
+    for (const week of sim.weeks) {
+      const tsbVals = week.days.map(d => d.tsb).filter(v => v !== undefined && v !== null);
+      if (tsbVals.length > 0) {
+        const avgTsb = tsbVals.reduce((a, b) => a + b, 0) / tsbVals.length;
+        if (avgTsb < overtrainTh) deloadWeeks.add(week.week);
+      }
+    }
+  }
+
+  let lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//GymTrain//Program//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH'
+  ];
+
+  for (let di = 0; di < totalDays; di++) {
+    const n = uniqueDays;
+    const d = daysPerWeek;
+    const p = di % d;
+    const w = Math.floor(di / d);
+    const startOffset = d > n ? (w % n) : 0;
+    const dayIdx = (startOffset + p) % n;
+    const day = program.days[dayIdx];
+    if (!day) continue;
+
+    const eventDate = new Date(startDate);
+    eventDate.setDate(eventDate.getDate() + di);
+
+    const dateStr = eventDate.toISOString().slice(0, 10).replace(/-/g, '');
+    const dayName = day.name || `Day ${dayIdx + 1}`;
+    const weekNum = w + 1;
+    const isDeload = deloadWeeks.has(weekNum);
+
+    if (isDeload) {
+      lines.push('BEGIN:VEVENT');
+      lines.push(`DTSTART:${dateStr}T000000`);
+      lines.push(`DTEND:${dateStr}T010000`);
+      lines.push(`SUMMARY:Deload - ${dayName}`);
+      lines.push('DESCRIPTION:Deload week - reduced volume training');
+      lines.push('END:VEVENT');
+    } else {
+      const summary = `${program.name} - ${dayName}`;
+      const descLines = day.exercises.map(ex => {
+        return `${ex.exercise_name}: ${ex.min_reps}-${ex.max_reps} reps x ${ex.sets} sets${ex.rir > 0 ? ` (RIR ${ex.rir})` : ''}`;
+      });
+      const description = descLines.join('\\n');
+
+      lines.push('BEGIN:VEVENT');
+      lines.push(`DTSTART:${dateStr}T000000`);
+      lines.push(`DTEND:${dateStr}T010000`);
+      lines.push(`SUMMARY:${summary}`);
+      lines.push(`DESCRIPTION:${description}`);
+      lines.push('END:VEVENT');
+    }
+  }
+
+  lines.push('END:VCALENDAR');
+
+  const icsContent = lines.join('\r\n');
+  res.set('Content-Type', 'text/calendar; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="${program.name.replace(/[^a-z0-9]/gi, '_')}.ics"`);
+  res.send(icsContent);
+});
+
+router.get('/programs/:id', (req, res) => {
+  const p = db.getProgram(parseInt(req.params.id));
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  res.json(p);
+});
+
+router.put('/programs/:id', express.json(), (req, res) => {
+  db.updateProgram(parseInt(req.params.id), req.body);
+  res.json({ ok: true });
+});
+
+router.delete('/programs/:id', (req, res) => {
+  db.deleteProgram(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+router.post('/programs/:id/days', express.json(), (req, res) => {
+  const dayId = db.addProgramDay(parseInt(req.params.id), req.body.day_number, req.body.name);
+  res.json({ id: dayId });
+});
+
+router.put('/program-days/:id', express.json(), (req, res) => {
+  db.updateProgramDay(parseInt(req.params.id), req.body);
+  res.json({ ok: true });
+});
+
+router.delete('/program-days/:id', (req, res) => {
+  db.deleteProgramDay(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+router.post('/program-days/:id/exercises', express.json(), (req, res) => {
+  const body = req.body;
+  const exId = db.addProgramExercise(parseInt(req.params.id), body.exercise_name, body.sets, body.min_reps, body.max_reps, body.min_increment, body.rir);
+  res.json({ id: exId });
+});
+
+router.put('/program-exercises/:id', express.json(), (req, res) => {
+  db.updateProgramExercise(parseInt(req.params.id), req.body);
+  res.json({ ok: true });
+});
+
+router.delete('/program-exercises/:id', (req, res) => {
+  db.deleteProgramExercise(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+router.get('/programs/:id/simulate', (req, res) => {
+  const weeks = req.query.weeks ? parseInt(req.query.weeks) : null;
+  const result = simulateProgram(parseInt(req.params.id), weeks);
+  if (!result) return res.status(404).json({ error: 'Program not found' });
+  res.json(result);
+});
 
 router.get('/exercise-status', (req, res) => {
   const exercises = db.getDistinctExercises();

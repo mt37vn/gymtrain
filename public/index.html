@@ -19,8 +19,9 @@
     </div>
     <!-- Tab navigation -->
     <nav id="tab-nav">
-      <button class="tab-btn active" data-tab="tss">TSS</button>
-      <button class="tab-btn" data-tab="muscle">Muscle Dynamic</button>
+      <button class="tab-btn active" data-tab="tss">Training Status</button>
+      <button class="tab-btn" data-tab="muscle">Weight Suggestion</button>
+      <button class="tab-btn" data-tab="program">Program</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
     </nav>
   </header>
@@ -174,9 +175,54 @@
         <div id="params-status"></div>
       </section>
     </div>
+
+    <!-- ============ TAB: Program ============ -->
+    <div id="tab-program" class="tab-content">
+      <div id="program-layout">
+        <div id="program-sidebar">
+          <h3>Programs</h3>
+          <div id="program-list-items"></div>
+          <button id="btn-new-program" class="btn-secondary" style="width:100%;margin-top:8px" onclick="window.createNewProgram()">+ New Program</button>
+        </div>
+        <div id="program-main">
+          <div id="program-editor" style="display:none">
+            <div class="program-header">
+              <input type="text" id="program-name" placeholder="Program name" class="program-name-input">
+              <label class="program-weeks-label">Weeks: <input type="number" id="program-weeks" value="4" min="1" max="52" class="program-weeks-input"></label>
+              <label class="program-weeks-label">Days/Week: <input type="number" id="program-days-per-week" min="1" max="7" class="program-weeks-input"></label>
+              <button id="btn-save-program" class="btn-primary">Save</button>
+              <button id="btn-delete-program" class="btn-secondary danger">Delete</button>
+            </div>
+            <div id="program-days-container"></div>
+            <button id="btn-add-day" class="btn-secondary" style="margin-top:8px">+ Add Day</button>
+          </div>
+          <div id="program-simulation">
+            <div class="program-header">
+              <h3>Program Schedule</h3>
+              <button id="btn-simulate" class="btn-primary">Refresh</button>
+            </div>
+            <div id="program-sim-chart-container" class="chart-container">
+              <h2>Predicted TSS / Fitness / Fatigue / TSB</h2>
+              <canvas id="programSimChart"></canvas>
+              <div id="program-sim-legend" class="legend-bar"></div>
+            </div>
+            <div id="program-sim-table"></div>
+            <div id="program-calendar-export" class="chart-container">
+              <h2>Export Calendar</h2>
+              <div class="calendar-export-row">
+                <label class="program-weeks-label">Start date: <input type="date" id="program-ical-date" class="program-weeks-input" style="width:160px"></label>
+                <button id="btn-export-ical" class="btn-primary">Export .ics</button>
+              </div>
+            </div>
+          </div>
+          <div id="program-empty" class="anomaly-empty">Select or create a program to get started.</div>
+        </div>
+      </div>
+    </div>
   </main>
   <script src="/app.js"></script>
 </body>
+<datalist id="exercise-datalist"></datalist>
 <div id="anomaly-modal" class="modal-overlay" style="display:none">
   <div class="modal-content">
     <div class="modal-header">

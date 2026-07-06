@@ -57,7 +57,37 @@ function initDatabase() {
       sets        INTEGER DEFAULT 0,
       PRIMARY KEY (day_key, exercise)
     );
+
+    CREATE TABLE IF NOT EXISTS programs (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT NOT NULL,
+      weeks       INTEGER DEFAULT 4,
+      created_at  TEXT DEFAULT (date('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS program_days (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      program_id  INTEGER NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
+      day_number  INTEGER NOT NULL,
+      name        TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS program_exercises (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      day_id          INTEGER NOT NULL REFERENCES program_days(id) ON DELETE CASCADE,
+      exercise_name   TEXT NOT NULL,
+      sets            INTEGER NOT NULL DEFAULT 3,
+      min_reps        INTEGER NOT NULL DEFAULT 8,
+      max_reps        INTEGER NOT NULL DEFAULT 12,
+      min_increment   REAL NOT NULL DEFAULT 2.5,
+      rir             INTEGER NOT NULL DEFAULT 2
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_program_days ON program_days(program_id);
+    CREATE INDEX IF NOT EXISTS idx_program_exercises ON program_exercises(day_id);
   `);
+
+  try { db.exec('ALTER TABLE programs ADD COLUMN days_per_week INTEGER'); } catch (_) {}
 
   return db;
 }
@@ -165,6 +195,10 @@ function getDailyMetricsForDay(dayKey) {
   return row || { daily_tss: 0, ctl: 0, atl: 0, tsb: 0, anabolism: 0 };
 }
 
+function getRecentDailyMetrics(limit) {
+  return db.prepare('SELECT day_key, daily_tss, tsb FROM daily_metrics ORDER BY day_key DESC LIMIT ?').all(limit).reverse();
+}
+
 function getLatestMetric() {
   return db.prepare('SELECT * FROM daily_metrics ORDER BY day_key DESC LIMIT 1').get();
 }
@@ -228,6 +262,86 @@ function deleteSet(id) {
   db.prepare('DELETE FROM workout_sets WHERE id = ?').run(id);
 }
 
+/* ─── Program CRUD ─── */
+
+function createProgram(name, weeks, daysPerWeek) {
+  return db.prepare('INSERT INTO programs (name, weeks, days_per_week) VALUES (?, ?, ?)').run(name, weeks, daysPerWeek || null).lastInsertRowid;
+}
+
+function getAllPrograms() {
+  const programs = db.prepare('SELECT * FROM programs ORDER BY created_at DESC').all();
+  for (const p of programs) {
+    p.days = db.prepare('SELECT * FROM program_days WHERE program_id = ? ORDER BY day_number').all(p.id);
+    for (const d of p.days) {
+      d.exercises = db.prepare('SELECT * FROM program_exercises WHERE day_id = ? ORDER BY id').all(d.id);
+    }
+  }
+  return programs;
+}
+
+function getProgram(id) {
+  const p = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
+  if (!p) return null;
+  p.days = db.prepare('SELECT * FROM program_days WHERE program_id = ? ORDER BY day_number').all(p.id);
+  for (const d of p.days) {
+    d.exercises = db.prepare('SELECT * FROM program_exercises WHERE day_id = ? ORDER BY id').all(d.id);
+  }
+  return p;
+}
+
+function updateProgram(id, fields) {
+  const sets = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(fields)) {
+    sets.push(`${k} = ?`);
+    vals.push(v);
+  }
+  vals.push(id);
+  db.prepare(`UPDATE programs SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+}
+
+function deleteProgram(id) {
+  db.prepare('DELETE FROM programs WHERE id = ?').run(id);
+}
+
+function addProgramDay(programId, dayNumber, name) {
+  return db.prepare('INSERT INTO program_days (program_id, day_number, name) VALUES (?, ?, ?)').run(programId, dayNumber, name || null).lastInsertRowid;
+}
+
+function updateProgramDay(id, fields) {
+  const sets = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(fields)) {
+    sets.push(`${k} = ?`);
+    vals.push(v);
+  }
+  vals.push(id);
+  db.prepare(`UPDATE program_days SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+}
+
+function deleteProgramDay(id) {
+  db.prepare('DELETE FROM program_days WHERE id = ?').run(id);
+}
+
+function addProgramExercise(dayId, exerciseName, sets, minReps, maxReps, minIncrement, rir) {
+  return db.prepare('INSERT INTO program_exercises (day_id, exercise_name, sets, min_reps, max_reps, min_increment, rir) VALUES (?, ?, ?, ?, ?, ?, ?)').run(dayId, exerciseName, sets, minReps, maxReps, minIncrement, rir).lastInsertRowid;
+}
+
+function updateProgramExercise(id, fields) {
+  const sets = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(fields)) {
+    sets.push(`${k} = ?`);
+    vals.push(v);
+  }
+  vals.push(id);
+  db.prepare(`UPDATE program_exercises SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+}
+
+function deleteProgramExercise(id) {
+  db.prepare('DELETE FROM program_exercises WHERE id = ?').run(id);
+}
+
 module.exports = {
   initDatabase,
   insertSet,
@@ -245,6 +359,7 @@ module.exports = {
   getMetricsByDayRange,
   getDailyTSSForDay,
   getDailyMetricsForDay,
+  getRecentDailyMetrics,
   getLatestMetric,
   getAllPlateauEvents,
   getAggregateStats,
@@ -255,5 +370,16 @@ module.exports = {
   getTSSBreakdown,
   getWorkingSets,
   updateSet,
-  deleteSet
+  deleteSet,
+  createProgram,
+  getAllPrograms,
+  getProgram,
+  updateProgram,
+  deleteProgram,
+  addProgramDay,
+  updateProgramDay,
+  deleteProgramDay,
+  addProgramExercise,
+  updateProgramExercise,
+  deleteProgramExercise
 };
