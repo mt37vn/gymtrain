@@ -5,6 +5,7 @@ const { simulateProgram, suggestWeight, trainingDayOffsets } = require('../engin
 const { parseCSVContent } = require('../csv-parser');
 const { runAnalysis } = require('../engine/analyzer');
 const { getParams, saveParams, resetParams } = require('../params');
+const { getAuthUrl, handleCallback, getCalendarClient } = require('../google-calendar');
 
 const router = express.Router();
 
@@ -234,28 +235,12 @@ router.get('/programs/:id/ical', (req, res) => {
   const program = db.getProgram(parseInt(req.params.id));
   if (!program) return res.status(404).json({ error: 'Not found' });
 
-  const uniqueDays = program.days.length;
-  const daysPerWeek = program.days_per_week || uniqueDays;
   const weeks = parseInt(req.query.weeks) || program.weeks;
   const startDateStr = req.query.start_date;
   if (!startDateStr) return res.status(400).json({ error: 'start_date query param required (YYYY-MM-DD)' });
 
   const startDate = new Date(startDateStr + 'T00:00:00');
-
-  const params = getParams();
-  const overtrainTh = params.overtrain_threshold || -20;
-
   const sim = simulateProgram(parseInt(req.params.id), weeks);
-  const deloadWeeks = new Set();
-  if (sim && sim.weeks) {
-    for (const week of sim.weeks) {
-      const tsbVals = week.days.map(d => d.tsb).filter(v => v !== undefined && v !== null);
-      if (tsbVals.length > 0) {
-        const avgTsb = tsbVals.reduce((a, b) => a + b, 0) / tsbVals.length;
-        if (avgTsb < overtrainTh) deloadWeeks.add(week.week);
-      }
-    }
-  }
 
   let lines = [
     'BEGIN:VCALENDAR',
@@ -265,48 +250,33 @@ router.get('/programs/:id/ical', (req, res) => {
     'METHOD:PUBLISH'
   ];
 
-  const offsets = trainingDayOffsets(daysPerWeek);
-  const totalCalendarDays = weeks * 7;
-  for (let cd = 0; cd < totalCalendarDays; cd++) {
-    const dow = cd % 7;
-    if (!offsets.includes(dow)) continue;
+  let cd = 0;
+  const lastEx = {};
+  for (const week of (sim && sim.weeks) || []) {
+    for (const day of week.days) {
+      const isTrainingDay = day.exercises && day.exercises.length > 0;
+      const eventDate = new Date(startDate);
+      eventDate.setDate(eventDate.getDate() + cd);
+      const dateStr = eventDate.toISOString().slice(0, 10).replace(/-/g, '');
 
-    const sessionInWeek = offsets.indexOf(dow);
-    const w = Math.floor(cd / 7);
-    const p = sessionInWeek;
-    const startOffset = daysPerWeek > uniqueDays ? (w % uniqueDays) : 0;
-    const dayIdx = (startOffset + p) % uniqueDays;
-    const day = program.days[dayIdx];
-    if (!day) continue;
-
-    const eventDate = new Date(startDate);
-    eventDate.setDate(eventDate.getDate() + cd);
-
-    const dateStr = eventDate.toISOString().slice(0, 10).replace(/-/g, '');
-    const dayName = day.name || `Day ${dayIdx + 1}`;
-    const weekNum = w + 1;
-    const isDeload = deloadWeeks.has(weekNum);
-
-    if (isDeload) {
-      lines.push('BEGIN:VEVENT');
-      lines.push(`DTSTART:${dateStr}T000000`);
-      lines.push(`DTEND:${dateStr}T010000`);
-      lines.push(`SUMMARY:Deload - ${dayName}`);
-      lines.push('DESCRIPTION:Deload week - reduced volume training');
-      lines.push('END:VEVENT');
-    } else {
-      const summary = `${program.name} - ${dayName}`;
-      const descLines = day.exercises.map(ex => {
-        return `${ex.exercise_name}: ${ex.min_reps}+ reps x ${ex.sets} sets`;
-      });
-      const description = descLines.join('\\n');
-
-      lines.push('BEGIN:VEVENT');
-      lines.push(`DTSTART:${dateStr}T000000`);
-      lines.push(`DTEND:${dateStr}T010000`);
-      lines.push(`SUMMARY:${summary}`);
-      lines.push(`DESCRIPTION:${description}`);
-      lines.push('END:VEVENT');
+      if (isTrainingDay) {
+        const summary = day.is_deload ? `Deload - ${day.day_name}` : day.day_name;
+        const descParts = day.exercises.map(ex => {
+          const prev = lastEx[ex.name];
+          lastEx[ex.name] = { w: ex.weight, r: ex.reps };
+          const wCh = prev ? (ex.weight > prev.w ? '↑' : ex.weight < prev.w ? '↓' : '') : '';
+          const rCh = prev ? (ex.reps > prev.r ? '↑' : ex.reps < prev.r ? '↓' : '') : '';
+          return `${ex.name}: ${ex.weight}kg${wCh} x ${ex.reps} reps${rCh} x ${ex.sets} sets`;
+        });
+        const description = (day.is_deload ? 'Deload - reduced volume training\\n' : '') + descParts.join('\\n');
+        lines.push('BEGIN:VEVENT');
+        lines.push(`DTSTART:${dateStr}T000000`);
+        lines.push(`DTEND:${dateStr}T010000`);
+        lines.push(`SUMMARY:${summary}`);
+        lines.push(`DESCRIPTION:${description}`);
+        lines.push('END:VEVENT');
+      }
+      cd++;
     }
   }
 
@@ -316,6 +286,129 @@ router.get('/programs/:id/ical', (req, res) => {
   res.set('Content-Type', 'text/calendar; charset=utf-8');
   res.set('Content-Disposition', `attachment; filename="${program.name.replace(/[^a-z0-9]/gi, '_')}.ics"`);
   res.send(icsContent);
+});
+
+/* ─── Google Calendar OAuth ─── */
+
+router.get('/google/auth-url', (req, res) => {
+  const url = getAuthUrl();
+  if (!url) return res.status(400).json({ error: 'Configure google_client_id and google_client_secret in params.json' });
+  res.json({ url });
+});
+
+router.get('/google/callback', async (req, res) => {
+  const code = req.query.code;
+  if (!code) return res.status(400).json({ error: 'Missing code parameter' });
+  try {
+    await handleCallback(code);
+    res.send('<html><body><h2>Authorization successful!</h2><p>You can close this window and click "Sync to Google Calendar" again.</p><script>if (window.opener) window.close();</script></body></html>');
+  } catch (e) {
+    res.status(500).send('<html><body><h2>Authorization failed</h2><p>' + e.message + '</p></body></html>');
+  }
+});
+
+/* ─── Google Calendar Sync ─── */
+
+router.post('/programs/:id/sync-google', async (req, res) => {
+  try {
+    const program = db.getProgram(parseInt(req.params.id));
+    if (!program) return res.status(404).json({ error: 'Not found' });
+
+    const calendarId = getParams().google_calendar_id;
+    if (!calendarId) return res.status(400).json({ error: 'Configure google_calendar_id in params.json' });
+
+    const calendar = await getCalendarClient();
+
+    const { simulateProgram } = require('../engine/program-simulator');
+
+    const weeks = parseInt(req.query.weeks) || program.weeks;
+    const startDateStr = req.query.start_date;
+    if (!startDateStr) return res.status(400).json({ error: 'start_date query param required (YYYY-MM-DD)' });
+
+    const startDate = new Date(startDateStr + 'T00:00:00');
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + weeks * 7);
+
+    // Delete existing events in the date range that match this program
+    // Pad by 1 day on each side to handle all-day event timezone offset
+    const padStart = new Date(startDate);
+    padStart.setDate(padStart.getDate() - 1);
+    const padEnd = new Date(endDate);
+    padEnd.setDate(padEnd.getDate() + 1);
+    let deleted = 0;
+    let pageToken = undefined;
+    do {
+      const listRes = await calendar.events.list({
+        calendarId,
+        timeMin: padStart.toISOString(),
+        timeMax: padEnd.toISOString(),
+        singleEvents: true,
+        pageToken
+      });
+      const items = listRes.data.items || [];
+      for (const ev of items) {
+        const summary = ev.summary || '';
+        if (summary.includes(program.name) || summary.includes('Deload')) {
+          try {
+            await calendar.events.delete({ calendarId, eventId: ev.id });
+            deleted++;
+          } catch (_) {}
+        }
+      }
+      pageToken = listRes.data.nextPageToken;
+    } while (pageToken);
+
+    const sim = simulateProgram(parseInt(req.params.id), weeks);
+    let created = 0;
+    const errors = [];
+
+    let cd = 0;
+    const lastEx = {};
+    for (const week of (sim && sim.weeks) || []) {
+      for (const day of week.days) {
+        const isTrainingDay = day.exercises && day.exercises.length > 0;
+        const eventDate = new Date(startDate);
+        eventDate.setDate(eventDate.getDate() + cd);
+        const dateStr = eventDate.toISOString().slice(0, 10);
+
+        if (isTrainingDay) {
+          const summary = day.is_deload ? `Deload - ${day.day_name}` : day.day_name;
+          const descParts = day.exercises.map(ex => {
+            const prev = lastEx[ex.name];
+            lastEx[ex.name] = { w: ex.weight, r: ex.reps };
+            const wCh = prev ? (ex.weight > prev.w ? '↑' : ex.weight < prev.w ? '↓' : '') : '';
+            const rCh = prev ? (ex.reps > prev.r ? '↑' : ex.reps < prev.r ? '↓' : '') : '';
+            return `${ex.name}: ${ex.weight}kg${wCh} x ${ex.reps} reps${rCh} x ${ex.sets} sets`;
+          });
+          const description = (day.is_deload ? 'Deload - reduced volume training\n' : '') + descParts.join('\n');
+
+          try {
+            await calendar.events.insert({
+              calendarId,
+              requestBody: {
+                summary,
+                description,
+                start: { date: dateStr },
+                end: { date: dateStr }
+              }
+            });
+            created++;
+          } catch (e) {
+            errors.push(e.message);
+          }
+        }
+        cd++;
+      }
+    }
+
+    if (created === 0 && errors.length > 0) {
+      return res.status(500).json({ error: 'Failed to create events: ' + errors[0] });
+    }
+
+    res.json({ deleted, created, errors: errors.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.get('/programs/:id', (req, res) => {
@@ -362,6 +455,22 @@ router.put('/program-exercises/:id', express.json(), (req, res) => {
 
 router.delete('/program-exercises/:id', (req, res) => {
   db.deleteProgramExercise(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+router.put('/program-days/:id/reorder-exercises', express.json(), (req, res) => {
+  const dayId = parseInt(req.params.id);
+  const { exerciseIds } = req.body;
+  if (!Array.isArray(exerciseIds)) return res.status(400).json({ error: 'exerciseIds array required' });
+  db.reorderExercises(dayId, exerciseIds);
+  res.json({ ok: true });
+});
+
+router.put('/programs/:id/reorder-days', express.json(), (req, res) => {
+  const programId = parseInt(req.params.id);
+  const { dayIds } = req.body;
+  if (!Array.isArray(dayIds)) return res.status(400).json({ error: 'dayIds array required' });
+  db.reorderDays(programId, dayIds);
   res.json({ ok: true });
 });
 

@@ -88,6 +88,10 @@ function initDatabase() {
   try { db.exec('ALTER TABLE programs ADD COLUMN days_per_week INTEGER'); } catch (_) {}
   try { db.exec('ALTER TABLE program_exercises DROP COLUMN max_reps'); } catch (_) {}
   try { db.exec('ALTER TABLE program_exercises DROP COLUMN rir'); } catch (_) {}
+  try { db.exec("ALTER TABLE program_exercises ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
+  try { db.exec('UPDATE program_exercises SET sort_order = id WHERE sort_order = 0'); } catch (_) {}
+  try { db.exec("ALTER TABLE program_days ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
+  try { db.exec('UPDATE program_days SET sort_order = id WHERE sort_order = 0'); } catch (_) {}
 
   return db;
 }
@@ -271,9 +275,9 @@ function createProgram(name, weeks, daysPerWeek) {
 function getAllPrograms() {
   const programs = db.prepare('SELECT * FROM programs ORDER BY created_at DESC').all();
   for (const p of programs) {
-    p.days = db.prepare('SELECT * FROM program_days WHERE program_id = ? ORDER BY day_number').all(p.id);
+    p.days = db.prepare('SELECT * FROM program_days WHERE program_id = ? ORDER BY sort_order, day_number').all(p.id);
     for (const d of p.days) {
-      d.exercises = db.prepare('SELECT * FROM program_exercises WHERE day_id = ? ORDER BY id').all(d.id);
+      d.exercises = db.prepare('SELECT * FROM program_exercises WHERE day_id = ? ORDER BY sort_order, id').all(d.id);
     }
   }
   return programs;
@@ -282,9 +286,9 @@ function getAllPrograms() {
 function getProgram(id) {
   const p = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
   if (!p) return null;
-  p.days = db.prepare('SELECT * FROM program_days WHERE program_id = ? ORDER BY day_number').all(p.id);
+  p.days = db.prepare('SELECT * FROM program_days WHERE program_id = ? ORDER BY sort_order, day_number').all(p.id);
   for (const d of p.days) {
-    d.exercises = db.prepare('SELECT * FROM program_exercises WHERE day_id = ? ORDER BY id').all(d.id);
+    d.exercises = db.prepare('SELECT * FROM program_exercises WHERE day_id = ? ORDER BY sort_order, id').all(d.id);
   }
   return p;
 }
@@ -305,7 +309,8 @@ function deleteProgram(id) {
 }
 
 function addProgramDay(programId, dayNumber, name) {
-  return db.prepare('INSERT INTO program_days (program_id, day_number, name) VALUES (?, ?, ?)').run(programId, dayNumber, name || null).lastInsertRowid;
+  const maxSort = db.prepare('SELECT COALESCE(MAX(sort_order), 0) as m FROM program_days WHERE program_id = ?').get(programId);
+  return db.prepare('INSERT INTO program_days (program_id, day_number, name, sort_order) VALUES (?, ?, ?, ?)').run(programId, dayNumber, name || null, maxSort.m + 1).lastInsertRowid;
 }
 
 function updateProgramDay(id, fields) {
@@ -323,8 +328,19 @@ function deleteProgramDay(id) {
   db.prepare('DELETE FROM program_days WHERE id = ?').run(id);
 }
 
+function reorderDays(programId, dayIds) {
+  const stmt = db.prepare('UPDATE program_days SET sort_order = ? WHERE id = ? AND program_id = ?');
+  const update = db.transaction((ids) => {
+    for (let i = 0; i < ids.length; i++) {
+      stmt.run(i + 1, ids[i], programId);
+    }
+  });
+  update(dayIds);
+}
+
 function addProgramExercise(dayId, exerciseName, sets, minReps, minIncrement) {
-  return db.prepare('INSERT INTO program_exercises (day_id, exercise_name, sets, min_reps, min_increment) VALUES (?, ?, ?, ?, ?)').run(dayId, exerciseName, sets, minReps, minIncrement).lastInsertRowid;
+  const maxSort = db.prepare('SELECT COALESCE(MAX(sort_order), 0) as m FROM program_exercises WHERE day_id = ?').get(dayId);
+  return db.prepare('INSERT INTO program_exercises (day_id, exercise_name, sets, min_reps, min_increment, sort_order) VALUES (?, ?, ?, ?, ?, ?)').run(dayId, exerciseName, sets, minReps, minIncrement, maxSort.m + 1).lastInsertRowid;
 }
 
 function updateProgramExercise(id, fields) {
@@ -340,6 +356,16 @@ function updateProgramExercise(id, fields) {
 
 function deleteProgramExercise(id) {
   db.prepare('DELETE FROM program_exercises WHERE id = ?').run(id);
+}
+
+function reorderExercises(dayId, exerciseIds) {
+  const stmt = db.prepare('UPDATE program_exercises SET sort_order = ? WHERE id = ? AND day_id = ?');
+  const update = db.transaction((ids) => {
+    for (let i = 0; i < ids.length; i++) {
+      stmt.run(i + 1, ids[i], dayId);
+    }
+  });
+  update(exerciseIds);
 }
 
 module.exports = {
@@ -379,7 +405,9 @@ module.exports = {
   addProgramDay,
   updateProgramDay,
   deleteProgramDay,
+  reorderDays,
   addProgramExercise,
   updateProgramExercise,
-  deleteProgramExercise
+  deleteProgramExercise,
+  reorderExercises
 };

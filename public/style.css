@@ -1134,4 +1134,10 @@ th {
 .weight-down { color: #f85149; }
 .sim-total-row td { border-top: 2px solid #30363d; font-weight: bold; }
 
+.drag-handle { cursor: grab; color: #484f58; user-select: none; font-size: 0.85rem; line-height: 1; }
+.drag-handle:active { cursor: grabbing; }
+tr.dragging, .program-day-card.dragging { opacity: 0.4; }
+tr.drag-over { border-top: 2px solid #58a6ff; }
+.program-day-card.drag-over { outline: 2px solid #58a6ff; outline-offset: -1px; border-radius: 8px; }
+
 

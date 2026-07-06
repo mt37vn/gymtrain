@@ -641,16 +641,18 @@ async function loadProgram(id) {
 
   const container = document.getElementById('program-days-container');
   container.innerHTML = p.days.map((d, idx) => `
-    <div class="program-day-card" data-day-id="${d.id}">
+    <div class="program-day-card" draggable="true" data-day-id="${d.id}">
       <div class="program-day-header">
-        <input type="text" class="program-day-name" value="${escapeHtml(d.name || ('Day ' + (idx + 1)))}" placeholder="Day ${idx + 1}">
+        <span class="drag-handle">⠿</span>
+        <input type="text" class="program-day-name" value="${escapeHtml(d.name || (p.name + ' - ' + String.fromCharCode(65 + idx)))}" placeholder="${p.name} - ${String.fromCharCode(65 + idx)}">
         <button class="btn-secondary small danger del-day-btn" style="margin-left:auto">×</button>
       </div>
       <table class="program-ex-table">
-        <thead><tr><th>Exercise</th><th>Sets</th><th>Min Reps</th><th>Increment</th><th>Start</th><th>End</th><th>%Change</th><th></th></tr></thead>
-        <tbody>
+        <thead><tr><th style="width:20px"></th><th>Exercise</th><th>Sets</th><th>Min Reps</th><th>Increment</th><th>Start</th><th>End</th><th>%Change</th><th></th></tr></thead>
+        <tbody data-day-id="${d.id}">
           ${d.exercises.map(ex => `
-            <tr data-ex-id="${ex.id}">
+            <tr data-ex-id="${ex.id}" draggable="true">
+              <td class="drag-handle">⠿</td>
               <td><input type="text" class="prog-ex-name" value="${escapeHtml(ex.exercise_name)}"></td>
               <td><input type="number" class="prog-ex-sets" value="${ex.sets}" min="1" max="20" style="width:50px"></td>
               <td><input type="number" class="prog-ex-minreps" value="${ex.min_reps}" min="1" max="50" style="width:50px"></td>
@@ -677,7 +679,7 @@ async function loadProgram(id) {
   container.querySelectorAll('.program-day-name').forEach(inp => {
     inp.addEventListener('change', async () => {
       const card = inp.closest('.program-day-card');
-      await fetchJSON('/api/program-days/' + card.dataset.dayId, { method: 'PUT', body: JSON.stringify({ name: inp.value }) });
+      await fetchJSON('/api/program-days/' + card.dataset.dayId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: inp.value }) });
     });
   });
 
@@ -691,12 +693,98 @@ async function loadProgram(id) {
     });
   });
 
+  // Wire day card drag-and-drop reorder
+  let draggedDayId = null;
+  container.querySelectorAll('.program-day-card[draggable]').forEach(card => {
+    card.addEventListener('dragstart', () => {
+      draggedDayId = card.dataset.dayId;
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      card.classList.add('drag-over');
+    });
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over');
+    });
+    card.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      card.classList.remove('drag-over');
+      if (!draggedDayId || draggedDayId === card.dataset.dayId) return;
+      const parent = card.parentNode;
+      const draggedCard = parent.querySelector(`.program-day-card[data-day-id="${draggedDayId}"]`);
+      if (!draggedCard) return;
+      const rect = card.getBoundingClientRect();
+      const after = e.clientY > rect.top + rect.height / 2;
+      if (after) {
+        parent.insertBefore(draggedCard, card.nextSibling);
+      } else {
+        parent.insertBefore(draggedCard, card);
+      }
+      draggedDayId = null;
+      const ids = [...parent.querySelectorAll('.program-day-card[draggable]')].map(c => parseInt(c.dataset.dayId));
+      await fetch('/api/programs/' + currentProgramId + '/reorder-days', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dayIds: ids })
+      });
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+      draggedDayId = null;
+    });
+  });
+
   // Wire exercise delete buttons
   container.querySelectorAll('.del-ex-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const tr = btn.closest('tr');
       await fetch('/api/program-exercises/' + tr.dataset.exId, { method: 'DELETE' });
       loadProgram(currentProgramId);
+    });
+  });
+
+  // Wire drag-and-drop reorder
+  let draggedId = null;
+  container.querySelectorAll('.program-ex-table tbody tr[draggable]').forEach(tr => {
+    tr.addEventListener('dragstart', () => {
+      draggedId = tr.dataset.exId;
+      tr.classList.add('dragging');
+    });
+    tr.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      tr.classList.add('drag-over');
+    });
+    tr.addEventListener('dragleave', () => {
+      tr.classList.remove('drag-over');
+    });
+    tr.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      tr.classList.remove('drag-over');
+      if (!draggedId || draggedId === tr.dataset.exId) return;
+      const tbody = tr.closest('tbody');
+      const draggedRow = tbody.querySelector(`tr[data-ex-id="${draggedId}"]`);
+      if (!draggedRow) return;
+      const rect = tr.getBoundingClientRect();
+      const after = e.clientY > rect.top + rect.height / 2;
+      if (after) {
+        tr.parentNode.insertBefore(draggedRow, tr.nextSibling);
+      } else {
+        tr.parentNode.insertBefore(draggedRow, tr);
+      }
+      draggedId = null;
+      const ids = [...tbody.querySelectorAll('tr[draggable]')].map(r => parseInt(r.dataset.exId));
+      await fetch('/api/program-days/' + tbody.dataset.dayId + '/reorder-exercises', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exerciseIds: ids })
+      });
+    });
+    tr.addEventListener('dragend', () => {
+      tr.classList.remove('dragging');
+      document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+      draggedId = null;
     });
   });
 
@@ -1332,10 +1420,12 @@ async function init() {
     if (!currentProgramId) return;
     const p = await fetchJSON('/api/programs/' + currentProgramId);
     const nextDay = (p.days ? p.days.length : 0) + 1;
+    const letter = String.fromCharCode(64 + nextDay);
+    const name = p.name + ' - ' + letter;
     await fetch('/api/programs/' + currentProgramId + '/days', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ day_number: nextDay, name: 'Day ' + nextDay })
+      body: JSON.stringify({ day_number: nextDay, name })
     });
     loadProgram(currentProgramId);
   });
@@ -1350,6 +1440,49 @@ async function init() {
     const startDate = document.getElementById('program-ical-date').value;
     if (!startDate) { alert('Please select a start date.'); return; }
     window.open(`/api/programs/${currentProgramId}/ical?weeks=${weeks}&start_date=${startDate}`);
+  });
+
+  document.getElementById('btn-sync-google').addEventListener('click', async () => {
+    if (!currentProgramId) return;
+    const weeks = parseInt(document.getElementById('program-weeks').value) || 4;
+    const startDate = document.getElementById('program-ical-date').value;
+    if (!startDate) { alert('Please select a start date.'); return; }
+    const statusEl = document.getElementById('google-sync-status');
+    statusEl.innerHTML = 'Syncing...';
+    statusEl.style.color = '#8b949e';
+    try {
+      const res = await fetch(`/api/programs/${currentProgramId}/sync-google?weeks=${weeks}&start_date=${startDate}`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.created !== undefined) {
+        statusEl.innerHTML = `✓ Synced ${data.created} events`;
+        statusEl.style.color = '#3fb950';
+      } else {
+        const msg = data.error || 'Sync failed';
+        if (msg.includes('client_id') || msg.includes('client_secret')) {
+          const authRes = await fetch('/api/google/auth-url');
+          const authData = await authRes.json();
+          if (authData.url) {
+            statusEl.innerHTML = `✗ Configure OAuth: set google_client_id and google_client_secret in params.json, then <a href="${authData.url}" target="_blank" style="color:#58a6ff">authorize here</a>`;
+          } else {
+            statusEl.innerHTML = `✗ ${msg}`;
+          }
+        } else if (msg.includes('refresh_token') || msg.includes('authUrl')) {
+          const authRes = await fetch('/api/google/auth-url');
+          const authData = await authRes.json();
+          if (authData.url) {
+            statusEl.innerHTML = `✗ <a href="${authData.url}" target="_blank" style="color:#58a6ff">Click to authorize Google Calendar</a>, then sync again`;
+          } else {
+            statusEl.innerHTML = `✗ ${msg}`;
+          }
+        } else {
+          statusEl.innerHTML = '✗ ' + escapeHtml(msg);
+        }
+        statusEl.style.color = '#f85149';
+      }
+    } catch (e) {
+      statusEl.innerHTML = '✗ Error: ' + e.message;
+      statusEl.style.color = '#f85149';
+    }
   });
 
   /* Initial render */
