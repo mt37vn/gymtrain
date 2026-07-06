@@ -63,6 +63,7 @@ function simulateProgram(programId, weeksOverride) {
     const isDeload = deloadActive;
     const exercises = [];
     let dailyTSS = 0;
+    let dayName = 'Rest';
 
     if (isTrainingDay) {
       const sessionInWeek = offsets.indexOf(dow);
@@ -73,6 +74,7 @@ function simulateProgram(programId, weeksOverride) {
       const day = program.days[dayIdx];
 
       if (day) {
+        dayName = day.name || DAY_NAMES[dow];
         for (const ex of day.exercises) {
           let state = exState[ex.exercise_name];
           if (!state) {
@@ -81,7 +83,7 @@ function simulateProgram(programId, weeksOverride) {
             const predictedPR = last ? (last.rm1_predicted || 0) : 0;
             const peakPR = timeline.reduce((max, d) => d.catabolism > max ? d.catabolism : max, 0);
             const suggestedWeight = predictedPR > 0
-              ? Math.round(predictedPR * 30 / (30 + ex.min_reps + ex.rir) / ex.min_increment) * ex.min_increment
+              ? Math.round(predictedPR * 30 / (30 + ex.min_reps + Math.round(ex.min_reps * RIR)) / ex.min_increment) * ex.min_increment
               : 0;
             state = {
               predictedPR,
@@ -98,7 +100,7 @@ function simulateProgram(programId, weeksOverride) {
           if (state.predictedPR <= 0) continue;
 
           const useWeight = isDeload ? state.currentWeight * 0.5 : state.currentWeight;
-          const useReps = isDeload ? Math.max(1, Math.floor(state.currentReps * 0.5)) : state.currentReps;
+          const useReps = state.currentReps;
 
           let setTSS = 0;
           let effCount = 0;
@@ -135,18 +137,18 @@ function simulateProgram(programId, weeksOverride) {
             predicted_1rm: Math.round(state.predictedPR * 10) / 10,
             effective_sets: effCount,
             min_reps: ex.min_reps,
-            max_reps: ex.max_reps,
-            min_increment: ex.min_increment,
-            rir: ex.rir
+            min_increment: ex.min_increment
           });
 
           if (!isDeload && effCount > 0) {
-            if (state.currentReps < ex.max_reps) {
-              state.currentReps++;
-            } else {
-              const oldVol = state.currentWeight * state.currentReps;
-              state.currentWeight = Math.round((state.currentWeight + ex.min_increment) * 10) / 10;
-              state.currentReps = Math.min(ex.max_reps, Math.max(ex.min_reps, Math.ceil(oldVol / state.currentWeight)));
+            state.currentReps++;
+            const effRIR = Math.round(ex.min_reps * RIR);
+            const nextWeight = state.predictedPR > 0
+              ? Math.round(state.predictedPR * 30 / (30 + ex.min_reps + effRIR) / ex.min_increment) * ex.min_increment
+              : 0;
+            if (nextWeight >= state.currentWeight + ex.min_increment) {
+              state.currentWeight = nextWeight;
+              state.currentReps = ex.min_reps;
             }
           }
         }
@@ -178,7 +180,7 @@ function simulateProgram(programId, weeksOverride) {
 
     result.weeks[weekIdx].days.push({
       day: dow + 1,
-      day_name: isTrainingDay ? DAY_NAMES[dow] : 'Rest',
+      day_name: dayName,
       tss: Math.round(dailyTSS * 10) / 10,
       ctl: Math.round(ctl * 10) / 10,
       atl: Math.round(atl * 10) / 10,

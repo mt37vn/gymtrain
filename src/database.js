@@ -78,9 +78,7 @@ function initDatabase() {
       exercise_name   TEXT NOT NULL,
       sets            INTEGER NOT NULL DEFAULT 3,
       min_reps        INTEGER NOT NULL DEFAULT 8,
-      max_reps        INTEGER NOT NULL DEFAULT 12,
-      min_increment   REAL NOT NULL DEFAULT 2.5,
-      rir             INTEGER NOT NULL DEFAULT 2
+      min_increment   REAL NOT NULL DEFAULT 2.5
     );
 
     CREATE INDEX IF NOT EXISTS idx_program_days ON program_days(program_id);
@@ -88,6 +86,8 @@ function initDatabase() {
   `);
 
   try { db.exec('ALTER TABLE programs ADD COLUMN days_per_week INTEGER'); } catch (_) {}
+  try { db.exec('ALTER TABLE program_exercises DROP COLUMN max_reps'); } catch (_) {}
+  try { db.exec('ALTER TABLE program_exercises DROP COLUMN rir'); } catch (_) {}
 
   return db;
 }
@@ -323,8 +323,8 @@ function deleteProgramDay(id) {
   db.prepare('DELETE FROM program_days WHERE id = ?').run(id);
 }
 
-function addProgramExercise(dayId, exerciseName, sets, minReps, maxReps, minIncrement, rir) {
-  return db.prepare('INSERT INTO program_exercises (day_id, exercise_name, sets, min_reps, max_reps, min_increment, rir) VALUES (?, ?, ?, ?, ?, ?, ?)').run(dayId, exerciseName, sets, minReps, maxReps, minIncrement, rir).lastInsertRowid;
+function addProgramExercise(dayId, exerciseName, sets, minReps, minIncrement) {
+  return db.prepare('INSERT INTO program_exercises (day_id, exercise_name, sets, min_reps, min_increment) VALUES (?, ?, ?, ?, ?)').run(dayId, exerciseName, sets, minReps, minIncrement).lastInsertRowid;
 }
 
 function updateProgramExercise(id, fields) {

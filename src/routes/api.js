@@ -297,7 +297,7 @@ router.get('/programs/:id/ical', (req, res) => {
     } else {
       const summary = `${program.name} - ${dayName}`;
       const descLines = day.exercises.map(ex => {
-        return `${ex.exercise_name}: ${ex.min_reps}-${ex.max_reps} reps x ${ex.sets} sets${ex.rir > 0 ? ` (RIR ${ex.rir})` : ''}`;
+        return `${ex.exercise_name}: ${ex.min_reps}+ reps x ${ex.sets} sets`;
       });
       const description = descLines.join('\\n');
 
@@ -351,7 +351,7 @@ router.delete('/program-days/:id', (req, res) => {
 
 router.post('/program-days/:id/exercises', express.json(), (req, res) => {
   const body = req.body;
-  const exId = db.addProgramExercise(parseInt(req.params.id), body.exercise_name, body.sets, body.min_reps, body.max_reps, body.min_increment, body.rir);
+  const exId = db.addProgramExercise(parseInt(req.params.id), body.exercise_name, body.sets, body.min_reps, body.min_increment);
   res.json({ id: exId });
 });
 

@@ -647,18 +647,17 @@ async function loadProgram(id) {
         <button class="btn-secondary small danger del-day-btn" style="margin-left:auto">×</button>
       </div>
       <table class="program-ex-table">
-        <thead><tr><th>Exercise</th><th>Sets</th><th>Min Reps</th><th>Max Reps</th><th>Increment</th><th>RIR</th><th>Start</th><th>End</th><th></th></tr></thead>
+        <thead><tr><th>Exercise</th><th>Sets</th><th>Min Reps</th><th>Increment</th><th>Start</th><th>End</th><th>%Change</th><th></th></tr></thead>
         <tbody>
           ${d.exercises.map(ex => `
             <tr data-ex-id="${ex.id}">
               <td><input type="text" class="prog-ex-name" value="${escapeHtml(ex.exercise_name)}"></td>
               <td><input type="number" class="prog-ex-sets" value="${ex.sets}" min="1" max="20" style="width:50px"></td>
-              <td><input type="number" class="prog-ex-minreps" value="${ex.min_reps}" min="1" max="30" style="width:50px"></td>
-              <td><input type="number" class="prog-ex-maxreps" value="${ex.max_reps}" min="1" max="30" style="width:50px"></td>
+              <td><input type="number" class="prog-ex-minreps" value="${ex.min_reps}" min="1" max="50" style="width:50px"></td>
               <td><input type="number" class="prog-ex-inc" value="${ex.min_increment}" min="0.5" max="25" step="0.5" style="width:60px"></td>
-              <td><input type="number" class="prog-ex-rir" value="${ex.rir}" min="0" max="5" style="width:50px"></td>
               <td><span class="prog-ex-start">—</span></td>
               <td><span class="prog-ex-end">—</span></td>
+              <td><span class="prog-ex-change">—</span></td>
               <td><button class="btn-secondary small danger del-ex-btn">×</button></td>
             </tr>
           `).join('')}
@@ -667,10 +666,8 @@ async function loadProgram(id) {
       <div class="prog-add-ex-row">
         <input type="text" class="prog-new-ex-name" placeholder="Exercise name..." list="exercise-datalist">
         <input type="number" class="prog-new-ex-sets" value="3" min="1" max="20" style="width:50px" title="Sets">
-        <input type="number" class="prog-new-ex-minreps" value="8" min="1" max="30" style="width:50px" title="Min reps">
-        <input type="number" class="prog-new-ex-maxreps" value="12" min="1" max="30" style="width:50px" title="Max reps">
+        <input type="number" class="prog-new-ex-minreps" value="8" min="1" max="50" style="width:50px" title="Min reps">
         <input type="number" class="prog-new-ex-inc" value="2.5" min="0.5" max="25" step="0.5" style="width:60px" title="Min increment">
-        <input type="number" class="prog-new-ex-rir" value="2" min="0" max="5" style="width:50px" title="RIR">
         <button class="btn-primary small add-ex-btn">Add</button>
       </div>
     </div>
@@ -712,29 +709,25 @@ async function loadProgram(id) {
       if (!name) return;
       const sets = parseInt(row.querySelector('.prog-new-ex-sets').value) || 3;
       const minReps = parseInt(row.querySelector('.prog-new-ex-minreps').value) || 8;
-      const maxReps = parseInt(row.querySelector('.prog-new-ex-maxreps').value) || 12;
       const inc = parseFloat(row.querySelector('.prog-new-ex-inc').value) || 2.5;
-      const rir = parseInt(row.querySelector('.prog-new-ex-rir').value) || 2;
       await fetch('/api/program-days/' + dayCard.dataset.dayId + '/exercises', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exercise_name: name, sets, min_reps: minReps, max_reps: maxReps, min_increment: inc, rir })
+        body: JSON.stringify({ exercise_name: name, sets, min_reps: minReps, min_increment: inc })
       });
       loadProgram(currentProgramId);
     });
   });
 
   // Wire exercise field changes (auto-save on blur)
-  container.querySelectorAll('.prog-ex-name, .prog-ex-sets, .prog-ex-minreps, .prog-ex-maxreps, .prog-ex-inc, .prog-ex-rir').forEach(inp => {
+  container.querySelectorAll('.prog-ex-name, .prog-ex-sets, .prog-ex-minreps, .prog-ex-inc').forEach(inp => {
     inp.addEventListener('change', async () => {
       const tr = inp.closest('tr');
       const fields = {
         exercise_name: tr.querySelector('.prog-ex-name').value,
         sets: parseInt(tr.querySelector('.prog-ex-sets').value),
         min_reps: parseInt(tr.querySelector('.prog-ex-minreps').value),
-        max_reps: parseInt(tr.querySelector('.prog-ex-maxreps').value),
-        min_increment: parseFloat(tr.querySelector('.prog-ex-inc').value),
-        rir: parseInt(tr.querySelector('.prog-ex-rir').value)
+        min_increment: parseFloat(tr.querySelector('.prog-ex-inc').value)
       };
       await fetch('/api/program-exercises/' + tr.dataset.exId, {
         method: 'PUT',
@@ -829,7 +822,7 @@ async function showSimulation(data) {
   for (const week of data.weeks) {
     tableHtml += `<div style="margin-bottom:16px"><h3 style="color:#58a6ff;margin-bottom:8px;font-size:0.9rem">Week ${week.week}</h3><div style="display:flex;flex-wrap:wrap;gap:12px">`;
     for (const day of week.days) {
-      const isDayDeload = day._da && day.exercises && day.exercises.length > 0;
+      const isDayDeload = day.is_deload && day.exercises && day.exercises.length > 0;
       const dayHeader = `W${week.week} - D${day.day} - ${escapeHtml(day.day_name)}` + (isDayDeload ? ' (Deload)' : '');
       const boxClass = isDayDeload ? 'program-day-box deload' : 'program-day-box';
       const rowClass = isDayDeload ? 'deload-row' : '';
@@ -860,6 +853,8 @@ async function showSimulation(data) {
           const tr = inp.closest('tr');
           tr.querySelector('.prog-ex-start').textContent = w.start_weight + ' kg';
           tr.querySelector('.prog-ex-end').textContent = w.end_weight + ' kg';
+          const pct = ((w.end_weight - w.start_weight) / w.start_weight * 100).toFixed(1);
+          tr.querySelector('.prog-ex-change').textContent = (w.end_weight >= w.start_weight ? '+' : '') + pct + '%';
           break;
         }
       }
