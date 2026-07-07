@@ -945,15 +945,62 @@ async function loadProgram(id) {
     });
   });
 
-  // Wire drag-and-drop reorder
+  // Wire drag-and-drop reorder (within day + cross-day move)
   let draggedId = null;
+  let draggedExDayId = null;
+
+  // Helper: move exercise row to target tbody at specified position
+  async function doMoveExRow(draggedRow, targetTbody, insertBeforeRow, sourceExDayId) {
+    if (insertBeforeRow) {
+      targetTbody.insertBefore(draggedRow, insertBeforeRow);
+    } else {
+      targetTbody.appendChild(draggedRow);
+    }
+
+    if (targetTbody.dataset.dayId === sourceExDayId) {
+      // Same-day reorder
+      const ids = [...targetTbody.querySelectorAll('tr[draggable]')].map(r => parseInt(r.dataset.exId));
+      await fetch('/api/program-days/' + targetTbody.dataset.dayId + '/reorder-exercises', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exerciseIds: ids })
+      });
+    } else {
+      // Cross-day move: update day_id then reorder both days
+      const exId = parseInt(draggedRow.dataset.exId);
+      await fetch('/api/program-exercises/' + exId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ day_id: parseInt(targetTbody.dataset.dayId) })
+      });
+      const targetIds = [...targetTbody.querySelectorAll('tr[draggable]')].map(r => parseInt(r.dataset.exId));
+      await fetch('/api/program-days/' + targetTbody.dataset.dayId + '/reorder-exercises', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exerciseIds: targetIds })
+      });
+      const sourceTbody = document.querySelector(`tbody[data-day-id="${sourceExDayId}"]`);
+      if (sourceTbody) {
+        const sourceIds = [...sourceTbody.querySelectorAll('tr[draggable]')].map(r => parseInt(r.dataset.exId));
+        await fetch('/api/program-days/' + sourceExDayId + '/reorder-exercises', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ exerciseIds: sourceIds })
+        });
+      }
+    }
+  }
+
+  // Row-level drag events
   container.querySelectorAll('.program-ex-table tbody tr[draggable]').forEach(tr => {
     tr.addEventListener('dragstart', () => {
       draggedId = tr.dataset.exId;
+      draggedExDayId = tr.closest('tbody').dataset.dayId;
       tr.classList.add('dragging');
     });
     tr.addEventListener('dragover', (e) => {
       e.preventDefault();
+      e.stopPropagation();
       tr.classList.add('drag-over');
     });
     tr.addEventListener('dragleave', () => {
@@ -961,29 +1008,41 @@ async function loadProgram(id) {
     });
     tr.addEventListener('drop', async (e) => {
       e.preventDefault();
+      e.stopPropagation();
       tr.classList.remove('drag-over');
       if (!draggedId || draggedId === tr.dataset.exId) return;
-      const tbody = tr.closest('tbody');
-      const draggedRow = tbody.querySelector(`tr[data-ex-id="${draggedId}"]`);
-      if (!draggedRow) return;
+      const targetTbody = tr.closest('tbody');
+      const draggedRow = document.querySelector(`tr[data-ex-id="${draggedId}"]`);
+      if (!draggedRow) { draggedId = null; return; }
+
       const rect = tr.getBoundingClientRect();
       const after = e.clientY > rect.top + rect.height / 2;
-      if (after) {
-        tr.parentNode.insertBefore(draggedRow, tr.nextSibling);
-      } else {
-        tr.parentNode.insertBefore(draggedRow, tr);
-      }
+      var srcDay = draggedExDayId;
+      await doMoveExRow(draggedRow, targetTbody, after ? tr.nextElementSibling : tr, srcDay);
       draggedId = null;
-      const ids = [...tbody.querySelectorAll('tr[draggable]')].map(r => parseInt(r.dataset.exId));
-      await fetch('/api/program-days/' + tbody.dataset.dayId + '/reorder-exercises', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exerciseIds: ids })
-      });
     });
     tr.addEventListener('dragend', () => {
       tr.classList.remove('dragging');
       document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+      draggedId = null;
+      draggedExDayId = null;
+    });
+  });
+
+  // Tbody-level drag events (for empty days / gaps between rows)
+  container.querySelectorAll('.program-ex-table tbody').forEach(tbody => {
+    tbody.addEventListener('dragover', (e) => {
+      e.preventDefault();
+    });
+    tbody.addEventListener('drop', async (e) => {
+      if (!draggedId) return;
+      // Only handle if the drop didn't hit a specific row (which has stopPropagation)
+      if (e.target.closest('tr[draggable]')) return;
+      e.preventDefault();
+      const draggedRow = document.querySelector(`tr[data-ex-id="${draggedId}"]`);
+      if (!draggedRow) { draggedId = null; return; }
+      var srcDay = draggedExDayId;
+      await doMoveExRow(draggedRow, e.target.closest('tbody') || e.currentTarget, null, srcDay);
       draggedId = null;
     });
   });
@@ -1152,7 +1211,7 @@ async function showSimulation(data) {
             lastExWeight[ex.name] = ex.weight;
             lastExReps[ex.name] = ex.reps;
           }
-          tableHtml += `<tr class="${rowClass}"><td>${escapeHtml(ex.name)}</td><td${wCls}>${ex.weight} kg${ex.plates && ex.use_lb_inc ? ' (' + escapeHtml(ex.plates) + ')' : ''}</td><td${rCls}>${ex.reps}</td><td>${ex.sets}</td>`;
+          tableHtml += `<tr class="${rowClass}"><td>${escapeHtml(ex.name)}</td><td${wCls}>${ex.weight} kg${ex.plates && ex.use_lb_inc ? '<br>(' + escapeHtml(ex.plates) + ')' : ''}</td><td${rCls}>${ex.reps}</td><td>${ex.sets}</td>`;
           tableHtml += `<td>${ex.tss !== undefined ? ex.tss : '—'}</td></tr>`;
         }
         tableHtml += `<tr class="sim-total-row"><td colspan="4"><strong>Total</strong></td><td><strong>${day.tss}</strong></td></tr>`;
