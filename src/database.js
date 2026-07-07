@@ -95,6 +95,8 @@ function initDatabase() {
   try { db.exec('ALTER TABLE daily_metrics ADD COLUMN total_effective_sets INTEGER DEFAULT 0'); } catch (_) {}
   try { db.exec("ALTER TABLE program_exercises ADD COLUMN use_lb_inc INTEGER DEFAULT 0"); } catch (_) {}
   try { db.exec('UPDATE program_exercises SET use_lb_inc = 0 WHERE use_lb_inc IS NULL'); } catch (_) {}
+  try { db.exec('ALTER TABLE daily_metrics ADD COLUMN total_warmup_sets INTEGER DEFAULT 0'); } catch (_) {}
+  try { db.exec('UPDATE daily_metrics SET total_warmup_sets = 0 WHERE total_warmup_sets IS NULL'); } catch (_) {}
 
   return db;
 }
@@ -122,8 +124,8 @@ function insertSets(sets) {
 
 function upsertDailyMetric(metric) {
   const stmt = db.prepare(`
-    INSERT INTO daily_metrics (day_key, daily_tss, ctl, atl, tsb, m, pr, weight_mult, rm1_predicted, deload_warning, plateau_hit, anabolism, catabolism, total_sets, total_effective_sets)
-    VALUES (@day_key, @daily_tss, @ctl, @atl, @tsb, @m, @pr, @weight_mult, @rm1_predicted, @deload_warning, @plateau_hit, @anabolism, @catabolism, @total_sets, @total_effective_sets)
+    INSERT INTO daily_metrics (day_key, daily_tss, ctl, atl, tsb, m, pr, weight_mult, rm1_predicted, deload_warning, plateau_hit, anabolism, catabolism, total_sets, total_effective_sets, total_warmup_sets)
+    VALUES (@day_key, @daily_tss, @ctl, @atl, @tsb, @m, @pr, @weight_mult, @rm1_predicted, @deload_warning, @plateau_hit, @anabolism, @catabolism, @total_sets, @total_effective_sets, @total_warmup_sets)
     ON CONFLICT(day_key) DO UPDATE SET
       daily_tss = @daily_tss,
       ctl = @ctl,
@@ -138,7 +140,8 @@ function upsertDailyMetric(metric) {
       anabolism = @anabolism,
       catabolism = @catabolism,
       total_sets = @total_sets,
-      total_effective_sets = @total_effective_sets
+      total_effective_sets = @total_effective_sets,
+      total_warmup_sets = @total_warmup_sets
   `);
   stmt.run(metric);
 }
@@ -251,7 +254,7 @@ function getTrainingDayDetails(fromKey, toKey) {
         ROW_NUMBER() OVER (PARTITION BY ws.day_key, ws.exercise ORDER BY ws.weight DESC, ws.id DESC) as rn
       FROM workout_sets ws
       LEFT JOIN tss_breakdown tb ON tb.day_key = ws.day_key AND tb.exercise = ws.exercise
-      WHERE ws.day_key >= ? AND ws.day_key <= ? AND ws.is_warmup = 0
+      WHERE ws.day_key >= ? AND ws.day_key <= ?
     )
     WHERE rn = 1
     ORDER BY day_key, exercise

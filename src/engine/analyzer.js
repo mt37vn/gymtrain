@@ -53,6 +53,7 @@ function runAnalysis() {
 
     let dailyTSS = 0;
     let totalSets = 0;
+    let totalWarmupSets = 0;
 
     // Shift effectiveHistory for ALL exercises (drop oldest, add 0 for today)
     for (const state of Object.values(exerciseState)) {
@@ -63,6 +64,7 @@ function runAnalysis() {
     if (isTrainingDay) {
       const allSets = db.getSetsByDay(dayKey);
       totalSets = allSets.length;
+      totalWarmupSets = allSets.filter(s => s.is_warmup).length;
 
       const setsByExercise = {};
       for (const s of allSets) {
@@ -155,7 +157,8 @@ function runAnalysis() {
       anabolism: 0,
       catabolism: 0,
       total_sets: totalSets,
-      total_effective_sets: totalEffectiveSets
+      total_effective_sets: totalEffectiveSets,
+      total_warmup_sets: totalWarmupSets
     });
 
     if (isTrainingDay) {

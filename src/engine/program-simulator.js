@@ -166,11 +166,12 @@ function simulateProgram(programId, weeksOverride) {
           });
 
           if (!isDeload && effCount > 0) {
-            // Max reps achievable at current weight given predicted PR (Epley: 1RM = w * (1 + r/30))
-            const maxAchievableReps = state.currentWeight > 0 && state.predictedPR > 0
+            // Epley: max reps you can do at current weight given predicted 1RM
+            // Reps stall here until predictedPR grows enough to raise the ceiling
+            const epleyMaxReps = state.currentWeight > 0 && state.predictedPR > 0
               ? Math.floor(30 * (state.predictedPR / state.currentWeight - 1))
               : 0;
-            const canIncreaseReps = maxAchievableReps > 0 && state.currentReps < maxAchievableReps;
+            const canAddRep = epleyMaxReps <= 0 || state.currentReps < epleyMaxReps;
 
             const maxRepsThreshold = state.currentWeight > 0 && ex.min_increment > 0 && ex.min_reps > 0
               ? Math.floor(30 * ((state.currentWeight + ex.min_increment) / state.currentWeight * (1 + ex.min_reps / 30) - 1))
@@ -181,8 +182,8 @@ function simulateProgram(programId, weeksOverride) {
               let nextW = state.currentWeight + ex.min_increment;
               const maxWeightAtReps = computeWeightAtRIR(state.predictedPR, ex.min_reps, 0);
               if (nextW >= maxWeightAtReps && maxWeightAtReps > 0) {
-                // Next weight too heavy — try rep progression instead
-                if (canIncreaseReps) { state.currentReps++; }
+                // Next weight too heavy — try rep progression instead (capped by Epley)
+                if (canAddRep) { state.currentReps++; }
               } else {
                 state.currentWeight = ex.use_lb_inc
                   ? nearestPlateWeight(BAR_KG, nextW).totalKg
@@ -190,8 +191,8 @@ function simulateProgram(programId, weeksOverride) {
                 state.currentReps = ex.min_reps;
               }
             } else {
-              // Rep progression: only increase if current weight still within PR at new reps
-              if (canIncreaseReps) { state.currentReps++; }
+              // Rep progression (capped by Epley max at current weight)
+              if (canAddRep) { state.currentReps++; }
             }
           }
         }

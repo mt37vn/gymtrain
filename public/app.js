@@ -188,6 +188,14 @@ async function renderTSS() {
     const st = trainingStatus(tsbData[i], ctlData[i], detrainTh, overtrainTh);
     statusCounts[st.cls]++;
   }
+  // Sum effective, warmup, and junk sets across the visible timeline
+  var totalEff = 0, totalSets = 0, totalWarmup = 0;
+  for (var si = 0; si < tl.length; si++) {
+    totalSets += tl[si].total_sets || 0;
+    totalEff += tl[si].total_effective_sets || 0;
+    totalWarmup += tl[si].total_warmup_sets || 0;
+  }
+  var totalJunk = Math.max(0, totalSets - totalEff - totalWarmup);
   document.getElementById('summary-cards-tss').innerHTML = `
     <div class="card">
       <h3>Training Status</h3>
@@ -207,6 +215,15 @@ async function renderTSS() {
         ).join('')}
       </div>
     </div>
+    <div class="card" id="junk-pie-card">
+      <h3>Eff / Warmup / Junk</h3>
+      <canvas id="junkPieChart" class="status-pie-canvas"></canvas>
+      <div style="font-size:0.7rem;color:#8b949e;text-align:center;margin-top:4px">
+        <span style="display:inline-block;margin:0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3fb950;margin-right:3px"></span>Eff ${totalEff}</span>
+        <span style="display:inline-block;margin:0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#58a6ff;margin-right:3px"></span>Warm ${totalWarmup}</span>
+        <span style="display:inline-block;margin:0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f85149;margin-right:3px"></span>Junk ${totalJunk}</span>
+      </div>
+    </div>
   `;
 
   if (chartInstances.statusPie) chartInstances.statusPie.destroy();
@@ -222,6 +239,43 @@ async function renderTSS() {
         plugins: {
           legend: { display: false },
           tooltip: { callbacks: { label: ctx => ctx.label + ': ' + ctx.parsed + ' days' } }
+        },
+        cutout: '65%'
+      }
+    });
+  }
+
+  // Junk vs effective sets pie chart
+  if (chartInstances.junkPie) chartInstances.junkPie.destroy();
+  if (totalSets > 0) {
+    var junkLabels = ['Effective', 'Warmup', 'Junk'];
+    var junkData = [totalEff, totalWarmup, totalJunk];
+    var junkColors = ['#3fb950', '#58a6ff', '#f85149'];
+    // Filter out zero-value segments to avoid invisible slices
+    var filteredIndices = junkData.map(function(v,i) { return v > 0 ? i : -1; }).filter(function(i) { return i >= 0; });
+    var filteredLabels = filteredIndices.map(function(i) { return junkLabels[i]; });
+    var filteredData = filteredIndices.map(function(i) { return junkData[i]; });
+    var filteredColors = filteredIndices.map(function(i) { return junkColors[i]; });
+    chartInstances.junkPie = new Chart(document.getElementById('junkPieChart'), {
+      type: 'doughnut',
+      data: {
+        labels: filteredLabels,
+        datasets: [{
+          data: filteredData,
+          backgroundColor: filteredColors,
+          borderColor: '#0d1117',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true, animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => ctx.label + ': ' + ctx.parsed + ' sets'
+            }
+          }
         },
         cutout: '65%'
       }
@@ -1098,7 +1152,7 @@ async function showSimulation(data) {
             lastExWeight[ex.name] = ex.weight;
             lastExReps[ex.name] = ex.reps;
           }
-          tableHtml += `<tr class="${rowClass}"><td>${escapeHtml(ex.name)}</td><td${wCls}>${ex.weight} kg</td><td${rCls}>${ex.reps}</td><td>${ex.sets}</td>`;
+          tableHtml += `<tr class="${rowClass}"><td>${escapeHtml(ex.name)}</td><td${wCls}>${ex.weight} kg${ex.plates && ex.use_lb_inc ? ' (' + escapeHtml(ex.plates) + ')' : ''}</td><td${rCls}>${ex.reps}</td><td>${ex.sets}</td>`;
           tableHtml += `<td>${ex.tss !== undefined ? ex.tss : '—'}</td></tr>`;
         }
         tableHtml += `<tr class="sim-total-row"><td colspan="4"><strong>Total</strong></td><td><strong>${day.tss}</strong></td></tr>`;
@@ -1554,12 +1608,20 @@ async function init() {
     if (parseInt(inp.value) < parseInt(inp.max)) { inp.stepUp(); inp.dispatchEvent(new Event('input')); }
   });
 
-  /* Sync 2nd time range selector with 1st */
+  /* Sync 2nd time range selector with 1st + auto-save */
   document.getElementById('time-range').addEventListener('change', () => {
     document.getElementById('time-range-2').value = document.getElementById('time-range').value;
+    localStorage.setItem('savedTimeRange', document.getElementById('time-range').value);
   });
   document.getElementById('time-range-2').addEventListener('change', () => {
     document.getElementById('time-range').value = document.getElementById('time-range-2').value;
+    localStorage.setItem('savedTimeRange', document.getElementById('time-range-2').value);
+  });
+  document.getElementById('date-from-tss').addEventListener('change', () => {
+    localStorage.setItem('savedTimeRange', document.getElementById('date-from-tss').value + '|' + document.getElementById('date-to-tss').value);
+  });
+  document.getElementById('date-to-tss').addEventListener('change', () => {
+    localStorage.setItem('savedTimeRange', document.getElementById('date-from-tss').value + '|' + document.getElementById('date-to-tss').value);
   });
 
   /* CSV import */
@@ -1816,49 +1878,27 @@ async function init() {
     }
   });
 
-  /* Favourite time range */
-  const favBtn = document.getElementById('fav-time-btn');
-  function applyFavTimeRange() {
-    const fav = localStorage.getItem('favTimeRange');
-    if (fav) {
-      try {
-        const saved = JSON.parse(fav);
-        if (saved.value === 'custom' && saved.from && saved.to) {
-          document.getElementById('time-range').value = 'custom';
-          document.getElementById('date-from-tss').value = saved.from;
-          document.getElementById('date-to-tss').value = saved.value;
-          document.querySelector('#controls-tss .date-range-group').style.display = 'flex';
-          favBtn.classList.add('active');
-        } else if (saved.value) {
-          document.getElementById('time-range').value = saved.value;
-          favBtn.classList.add('active');
-        }
-      } catch (_) {}
-    }
-  }
-  favBtn.addEventListener('click', () => {
-    const sel = document.getElementById('time-range');
-    const isActive = favBtn.classList.toggle('active');
-    if (isActive) {
-      const val = sel.value;
-      if (val === 'custom') {
-        localStorage.setItem('favTimeRange', JSON.stringify({
-          value: 'custom',
-          from: document.getElementById('date-from-tss').value,
-          to: document.getElementById('date-to-tss').value
-        }));
-      } else {
-        localStorage.setItem('favTimeRange', JSON.stringify({ value: val }));
+  /* Restore auto-saved time range */
+  const saved = localStorage.getItem('savedTimeRange');
+  if (saved) {
+    if (saved.includes('|')) {
+      const [from, to] = saved.split('|');
+      if (from && to) {
+        document.getElementById('time-range').value = 'custom';
+        document.getElementById('time-range-2').value = 'custom';
+        document.getElementById('date-from-tss').value = from;
+        document.getElementById('date-to-tss').value = to;
+        document.querySelector('#controls-tss .date-range-group').style.display = 'flex';
       }
     } else {
-      localStorage.removeItem('favTimeRange');
+      document.getElementById('time-range').value = saved;
+      document.getElementById('time-range-2').value = saved;
     }
-  });
-  applyFavTimeRange();
+  }
 
   /* Initial render */
-  document.getElementById('time-range').value = '84';
-  document.getElementById('time-range-2').value = '84';
+  document.getElementById('time-range').value = document.getElementById('time-range').value || '84';
+  document.getElementById('time-range-2').value = document.getElementById('time-range-2').value || '84';
   renderTSS();
 }
 
