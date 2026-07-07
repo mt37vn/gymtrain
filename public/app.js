@@ -1106,6 +1106,9 @@ const PARAM_DEFS = [
   { key: 'detrain_threshold',   label: 'Detrain Threshold',                desc: 'TSB % above which = Detrain.',               group: 'Training Zones',     min: 5, max: 100, step: 1 },
   { key: 'overtrain_threshold', label: 'Overtrain Threshold',              desc: 'TSB % below which = Overtrain.',             group: 'Training Zones',     min: -100, max: -5, step: 1 },
   { key: 'bodyweight',          label: 'Bodyweight (kg)',                  desc: 'Used for TSS: rm1² / BW (Epley 1RM).',      group: 'Training Zones', min: 30, max: 200, step: 1 },
+  { key: 'google_client_id',    label: 'Google Client ID',                 desc: 'OAuth 2.0 client ID from Google Cloud Console.', group: 'Google Calendar', type: 'text' },
+  { key: 'google_client_secret', label: 'Google Client Secret',            desc: 'OAuth 2.0 client secret.',                   group: 'Google Calendar', type: 'password' },
+  { key: 'google_calendar_id',  label: 'Google Calendar ID',               desc: 'Calendar ID (email) or "primary".',          group: 'Google Calendar', type: 'text' },
 ];
 
 function buildParamField(def, currentVal) {
@@ -1132,6 +1135,20 @@ function buildParamField(def, currentVal) {
     </div>`;
 }
 
+function buildTextField(def, currentVal) {
+  return `
+    <div class="param-row">
+      <div class="param-info">
+        <span class="param-label">${def.label}</span>
+        <span class="param-desc">${def.desc}</span>
+      </div>
+      <div class="param-controls">
+        <input type="${def.type || 'text'}" class="param-text" data-key="${def.key}"
+               value="${escapeHtml(String(currentVal || ''))}" style="width:100%;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:8px 10px;font-size:0.85rem">
+      </div>
+    </div>`;
+}
+
 function buildGroupHeading(group) {
   return `<h3 class="param-group-heading">${group}</h3>`;
 }
@@ -1146,7 +1163,7 @@ async function renderSettings() {
       currentGroup = def.group;
       html += buildGroupHeading(currentGroup);
     }
-    html += buildParamField(def, params[def.key]);
+    html += def.type === 'text' || def.type === 'password' ? buildTextField(def, params[def.key]) : buildParamField(def, params[def.key]);
   }
 
   document.getElementById('params-form').innerHTML = html;
@@ -1181,6 +1198,9 @@ async function renderSettings() {
       const def = PARAM_DEFS.find(d => d.key === s.dataset.key);
       const val = parseFloat(s.value);
       updates[s.dataset.key] = def && def.pct ? val / 100 : val;
+    });
+    document.querySelectorAll('.param-text').forEach(inp => {
+      updates[inp.dataset.key] = inp.value;
     });
     try {
       const res = await fetch('/api/params', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
