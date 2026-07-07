@@ -372,14 +372,36 @@ router.post('/programs/:id/sync-google', async (req, res) => {
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + weeks * 7);
 
-    // Delete existing events in the date range that match this program
-    // Pad by 1 day on each side to handle all-day event timezone offset
+    // Pad date range for all-day event timezone handling
     const padStart = new Date(startDate);
     padStart.setDate(padStart.getDate() - 1);
     const padEnd = new Date(endDate);
     padEnd.setDate(padEnd.getDate() + 1);
+
+    // Delete existing events for this program using extended property
     let deleted = 0;
     let pageToken = undefined;
+    do {
+      const listRes = await calendar.events.list({
+        calendarId,
+        timeMin: padStart.toISOString(),
+        timeMax: padEnd.toISOString(),
+        privateExtendedProperty: 'program_id=' + req.params.id,
+        singleEvents: true,
+        pageToken
+      });
+      const items = listRes.data.items || [];
+      for (const ev of items) {
+        try {
+          await calendar.events.delete({ calendarId, eventId: ev.id });
+          deleted++;
+        } catch (_) {}
+      }
+      pageToken = listRes.data.nextPageToken;
+    } while (pageToken);
+
+    // Delete ALL app-created events in date range (from any program, including orphaned ones)
+    pageToken = undefined;
     do {
       const listRes = await calendar.events.list({
         calendarId,
@@ -388,10 +410,9 @@ router.post('/programs/:id/sync-google', async (req, res) => {
         singleEvents: true,
         pageToken
       });
-      const items = listRes.data.items || [];
-      for (const ev of items) {
-        const summary = ev.summary || '';
-        if (summary.includes(program.name) || summary.includes('Deload')) {
+      for (const ev of (listRes.data.items || [])) {
+        const progId = ev.extendedProperties && ev.extendedProperties.private && ev.extendedProperties.private.program_id;
+        if (progId) {
           try {
             await calendar.events.delete({ calendarId, eventId: ev.id });
             deleted++;
@@ -400,6 +421,32 @@ router.post('/programs/:id/sync-google', async (req, res) => {
       }
       pageToken = listRes.data.nextPageToken;
     } while (pageToken);
+
+    // Fallback: also delete old events (from before extended property) that match program name
+    if (program.name) {
+      pageToken = undefined;
+      do {
+        const listRes = await calendar.events.list({
+          calendarId,
+          timeMin: padStart.toISOString(),
+          timeMax: padEnd.toISOString(),
+          q: program.name,
+          singleEvents: true,
+          pageToken
+        });
+        const items = listRes.data.items || [];
+        for (const ev of items) {
+          const s = ev.summary || '';
+          if (s.includes(program.name)) {
+            try {
+              await calendar.events.delete({ calendarId, eventId: ev.id });
+              deleted++;
+            } catch (_) {}
+          }
+        }
+        pageToken = listRes.data.nextPageToken;
+      } while (pageToken);
+    }
 
     const sim = simulateProgram(parseInt(req.params.id), weeks);
     let created = 0;
@@ -432,7 +479,10 @@ router.post('/programs/:id/sync-google', async (req, res) => {
                 summary,
                 description,
                 start: { date: dateStr },
-                end: { date: dateStr }
+                end: { date: dateStr },
+                extendedProperties: {
+                  private: { program_id: String(program.id) }
+                }
               }
             });
             created++;
@@ -465,8 +515,31 @@ router.put('/programs/:id', express.json(), (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/programs/:id', (req, res) => {
-  db.deleteProgram(parseInt(req.params.id));
+router.delete('/programs/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  const program = db.getProgram(id);
+  if (program) {
+    db.deleteProgram(id);
+    // Clean up Google Calendar events for this program (best-effort, don't block deletion)
+    try {
+      const calendar = await getCalendarClient().catch(() => null);
+      if (calendar) {
+        const calendarId = getParams().google_calendar_id;
+        let pageToken;
+        do {
+          const listRes = await calendar.events.list({
+            calendarId,
+            privateExtendedProperty: 'program_id=' + req.params.id,
+            pageToken
+          });
+          for (const ev of (listRes.data.items || [])) {
+            await calendar.events.delete({ calendarId, eventId: ev.id }).catch(() => {});
+          }
+          pageToken = listRes.data.nextPageToken;
+        } while (pageToken);
+      }
+    } catch (_) {}
+  }
   res.json({ ok: true });
 });
 
