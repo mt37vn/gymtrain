@@ -1,6 +1,7 @@
 const db = require('../database');
-const { computeEpley1RM } = require('./muscle-dynamics');
-const { computeSetTSS, computeSMA, checkDeload, getExerciseMultiplier } = require('./neural-fatigue');
+const { computeEpley1RM, computeWeightAtRIR } = require('./muscle-dynamics');
+const { computeSetTSS, computeSMA, checkDeload, getExerciseMultiplier, trainingStatus } = require('./neural-fatigue');
+const { nearestPlateWeight, BAR_KG } = require('./plate-calc');
 const { getParams } = require('../params');
 const { analyzeExercise } = require('./exercise-analyzer');
 
@@ -82,14 +83,28 @@ function simulateProgram(programId, weeksOverride) {
             const last = timeline.length > 0 ? timeline[timeline.length - 1] : null;
             const predictedPR = last ? (last.rm1_predicted || 0) : 0;
             const peakPR = timeline.reduce((max, d) => d.catabolism > max ? d.catabolism : max, 0);
-            const suggestedWeight = predictedPR > 0
-              ? Math.round(predictedPR * 30 / (30 + ex.min_reps + Math.round(ex.min_reps * RIR)) / ex.min_increment) * ex.min_increment
-              : 0;
+            const recLow = predictedPR > 0 ? computeWeightAtRIR(predictedPR, ex.min_reps, RIR) : 0;
+            const recHigh = predictedPR > 0 ? computeWeightAtRIR(predictedPR, ex.min_reps, 0) : 0;
+            const lastSet = db.getLastSetReps(ex.exercise_name);
+            const lastWeight = lastSet ? lastSet.weight : 0;
+            let startWeight;
+            if (lastWeight > 0 && recLow > 0 && recHigh > 0) {
+              startWeight = Math.max(recLow, Math.min(recHigh, lastWeight));
+            } else if (predictedPR > 0) {
+              startWeight = computeWeightAtRIR(predictedPR, ex.min_reps, 0);
+            } else {
+              startWeight = 0;
+            }
+            if (startWeight > 0) {
+              startWeight = ex.use_lb_inc
+                ? nearestPlateWeight(BAR_KG, startWeight).totalKg
+                : Math.round(startWeight / ex.min_increment) * ex.min_increment;
+            }
             state = {
               predictedPR,
               peakPR: peakPR || predictedPR,
-              startWeight: suggestedWeight,
-              currentWeight: suggestedWeight,
+              startWeight,
+              currentWeight: startWeight,
               currentReps: ex.min_reps,
               effectiveHistory: [0, 0, 0, 0],
               lastEffectiveDay: -999
@@ -137,26 +152,46 @@ function simulateProgram(programId, weeksOverride) {
             sets: ex.sets,
             tss: Math.round(exTSS * 10) / 10,
             predicted_1rm: Math.round(state.predictedPR * 10) / 10,
+            max_reps: Math.floor(30 * ((useWeight + ex.min_increment) / useWeight * (1 + ex.min_reps / 30) - 1)),
             effective_sets: effCount,
             min_reps: ex.min_reps,
-            min_increment: ex.min_increment
+            min_increment: ex.min_increment,
+            use_lb_inc: ex.use_lb_inc ? 1 : 0,
+            plates: (function() {
+              if (!ex.use_lb_inc) return '';
+              const p = nearestPlateWeight(BAR_KG, useWeight);
+              const sorted = [...p.plates].sort((a, b) => b.kg - a.kg);
+              return sorted.map(x => x.count + '×' + x.kg).join(' + ');
+            })()
           });
 
           if (!isDeload && effCount > 0) {
-            const effRIR = Math.round(ex.min_reps * RIR);
-            const nextWeight = state.predictedPR > 0
-              ? Math.round(state.predictedPR * 30 / (30 + ex.min_reps + effRIR) / ex.min_increment) * ex.min_increment
+            // Max reps achievable at current weight given predicted PR (Epley: 1RM = w * (1 + r/30))
+            const maxAchievableReps = state.currentWeight > 0 && state.predictedPR > 0
+              ? Math.floor(30 * (state.predictedPR / state.currentWeight - 1))
               : 0;
-            if (nextWeight >= state.currentWeight + ex.min_increment) {
-              state.currentWeight = nextWeight;
-              state.currentReps = ex.min_reps;
-            } else {
-              const maxRepsAtWeight = state.predictedPR > 0 && state.currentWeight > 0
-                ? Math.floor(30 * (state.predictedPR / state.currentWeight - 1))
-                : 0;
-              if (state.currentReps + 1 <= maxRepsAtWeight) {
-                state.currentReps++;
+            const canIncreaseReps = maxAchievableReps > 0 && state.currentReps < maxAchievableReps;
+
+            const maxRepsThreshold = state.currentWeight > 0 && ex.min_increment > 0 && ex.min_reps > 0
+              ? Math.floor(30 * ((state.currentWeight + ex.min_increment) / state.currentWeight * (1 + ex.min_reps / 30) - 1))
+              : 0;
+
+            if (state.currentReps >= maxRepsThreshold && maxRepsThreshold > 0) {
+              // Ready for weight progression: check if next weight fits within PR dự kiến
+              let nextW = state.currentWeight + ex.min_increment;
+              const maxWeightAtReps = computeWeightAtRIR(state.predictedPR, ex.min_reps, 0);
+              if (nextW >= maxWeightAtReps && maxWeightAtReps > 0) {
+                // Next weight too heavy — try rep progression instead
+                if (canIncreaseReps) { state.currentReps++; }
+              } else {
+                state.currentWeight = ex.use_lb_inc
+                  ? nearestPlateWeight(BAR_KG, nextW).totalKg
+                  : Math.round(nextW / ex.min_increment) * ex.min_increment;
+                state.currentReps = ex.min_reps;
               }
+            } else {
+              // Rep progression: only increase if current weight still within PR at new reps
+              if (canIncreaseReps) { state.currentReps++; }
             }
           }
         }
@@ -181,6 +216,7 @@ function simulateProgram(programId, weeksOverride) {
     const ctl = computeSMA(allTSS, FITNESS_WIN);
     const atl = computeSMA(allTSS, FATIGUE_WIN);
     const tsb = ctl - atl;
+    const status = trainingStatus(tsb, ctl, params.detrain_threshold || 20, OVERTRAIN);
 
     deloadActive = checkDeload(ctl, atl, OVERTRAIN);
 
@@ -194,7 +230,6 @@ function simulateProgram(programId, weeksOverride) {
       atl: Math.round(atl * 10) / 10,
       tsb: Math.round(tsb * 10) / 10,
       is_deload: isDeload,
-      _da: deloadActive,
       exercises
     });
   }
@@ -211,13 +246,15 @@ function simulateProgram(programId, weeksOverride) {
   return result;
 }
 
-function suggestWeight(exercise, minReps, rir) {
+function suggestWeight(exercise, minReps, rirPct) {
+  const params = getParams();
+  const pct = rirPct !== undefined ? rirPct : (params.rir_threshold || 0.3);
   const timeline = analyzeExercise(exercise);
   const last = timeline.length > 0 ? timeline[timeline.length - 1] : null;
   const predictedPR = last ? (last.rm1_predicted || 0) : 0;
   if (predictedPR <= 0) return { weight: 0, predicted_1rm: 0 };
-  const weight = predictedPR * 30 / (30 + minReps + rir);
-  return { weight: Math.round(weight * 10) / 10, predicted_1rm: Math.round(predictedPR * 10) / 10 };
+  const calcWeight = computeWeightAtRIR(predictedPR, minReps, pct);
+  return { weight: Math.round(calcWeight * 10) / 10, predicted_1rm: Math.round(predictedPR * 10) / 10 };
 }
 
 module.exports = { simulateProgram, suggestWeight, trainingDayOffsets };

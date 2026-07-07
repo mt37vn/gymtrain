@@ -92,6 +92,9 @@ function initDatabase() {
   try { db.exec('UPDATE program_exercises SET sort_order = id WHERE sort_order = 0'); } catch (_) {}
   try { db.exec("ALTER TABLE program_days ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
   try { db.exec('UPDATE program_days SET sort_order = id WHERE sort_order = 0'); } catch (_) {}
+  try { db.exec('ALTER TABLE daily_metrics ADD COLUMN total_effective_sets INTEGER DEFAULT 0'); } catch (_) {}
+  try { db.exec("ALTER TABLE program_exercises ADD COLUMN use_lb_inc INTEGER DEFAULT 0"); } catch (_) {}
+  try { db.exec('UPDATE program_exercises SET use_lb_inc = 0 WHERE use_lb_inc IS NULL'); } catch (_) {}
 
   return db;
 }
@@ -119,8 +122,8 @@ function insertSets(sets) {
 
 function upsertDailyMetric(metric) {
   const stmt = db.prepare(`
-    INSERT INTO daily_metrics (day_key, daily_tss, ctl, atl, tsb, m, pr, weight_mult, rm1_predicted, deload_warning, plateau_hit, anabolism, catabolism, total_sets)
-    VALUES (@day_key, @daily_tss, @ctl, @atl, @tsb, @m, @pr, @weight_mult, @rm1_predicted, @deload_warning, @plateau_hit, @anabolism, @catabolism, @total_sets)
+    INSERT INTO daily_metrics (day_key, daily_tss, ctl, atl, tsb, m, pr, weight_mult, rm1_predicted, deload_warning, plateau_hit, anabolism, catabolism, total_sets, total_effective_sets)
+    VALUES (@day_key, @daily_tss, @ctl, @atl, @tsb, @m, @pr, @weight_mult, @rm1_predicted, @deload_warning, @plateau_hit, @anabolism, @catabolism, @total_sets, @total_effective_sets)
     ON CONFLICT(day_key) DO UPDATE SET
       daily_tss = @daily_tss,
       ctl = @ctl,
@@ -134,7 +137,8 @@ function upsertDailyMetric(metric) {
       plateau_hit = @plateau_hit,
       anabolism = @anabolism,
       catabolism = @catabolism,
-      total_sets = @total_sets
+      total_sets = @total_sets,
+      total_effective_sets = @total_effective_sets
   `);
   stmt.run(metric);
 }
@@ -172,8 +176,7 @@ function getDistinctExercises() {
 }
 
 function getLastSetReps(exercise) {
-  const row = db.prepare('SELECT reps FROM workout_sets WHERE exercise = ? AND reps > 0 ORDER BY day_key DESC, id DESC LIMIT 1').get(exercise);
-  return row ? row.reps : null;
+  return db.prepare('SELECT weight, reps FROM workout_sets WHERE exercise = ? AND is_warmup = 0 AND weight > 0 AND reps > 0 ORDER BY day_key DESC, id DESC LIMIT 1').get(exercise) || null;
 }
 
 function setExists(startMs, exercise, reps, weight) {
@@ -360,9 +363,9 @@ function reorderDays(programId, dayIds) {
   update(dayIds);
 }
 
-function addProgramExercise(dayId, exerciseName, sets, minReps, minIncrement) {
+function addProgramExercise(dayId, exerciseName, sets, minReps, minIncrement, useLbInc) {
   const maxSort = db.prepare('SELECT COALESCE(MAX(sort_order), 0) as m FROM program_exercises WHERE day_id = ?').get(dayId);
-  return db.prepare('INSERT INTO program_exercises (day_id, exercise_name, sets, min_reps, min_increment, sort_order) VALUES (?, ?, ?, ?, ?, ?)').run(dayId, exerciseName, sets, minReps, minIncrement, maxSort.m + 1).lastInsertRowid;
+  return db.prepare('INSERT INTO program_exercises (day_id, exercise_name, sets, min_reps, min_increment, sort_order, use_lb_inc) VALUES (?, ?, ?, ?, ?, ?, ?)').run(dayId, exerciseName, sets, minReps, minIncrement, maxSort.m + 1, useLbInc ? 1 : 0).lastInsertRowid;
 }
 
 function updateProgramExercise(id, fields) {

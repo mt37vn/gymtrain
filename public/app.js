@@ -758,7 +758,7 @@ async function loadProgram(id) {
         <button class="btn-secondary small danger del-day-btn" style="margin-left:auto">×</button>
       </div>
       <table class="program-ex-table">
-        <thead><tr><th style="width:20px"></th><th>Exercise</th><th>Sets</th><th>Min Reps</th><th>Increment</th><th>Start</th><th>End</th><th>%Change</th><th></th></tr></thead>
+        <thead><tr><th style="width:20px"></th><th>Exercise</th><th>Sets</th><th>Min Reps</th><th>Max Reps</th><th>Increment</th><th>Start</th><th>End</th><th>%Change</th><th></th></tr></thead>
         <tbody data-day-id="${d.id}">
           ${d.exercises.map(ex => `
             <tr data-ex-id="${ex.id}" draggable="true">
@@ -766,7 +766,13 @@ async function loadProgram(id) {
               <td><input type="text" class="prog-ex-name" value="${escapeHtml(ex.exercise_name)}"></td>
               <td><input type="number" class="prog-ex-sets" value="${ex.sets}" min="1" max="20" style="width:50px"></td>
               <td><input type="number" class="prog-ex-minreps" value="${ex.min_reps}" min="1" max="50" style="width:50px"></td>
-              <td><input type="number" class="prog-ex-inc" value="${ex.min_increment}" min="0.5" max="25" step="0.5" style="width:60px"></td>
+              <td><span class="prog-ex-maxreps">—</span></td>
+              <td>
+                <input type="number" class="prog-ex-inc" value="${ex.use_lb_inc ? (ex.min_increment * 2.20462).toFixed(1) : ex.min_increment.toFixed(1)}"
+                  min="${ex.use_lb_inc ? 5 : 0.5}" max="${ex.use_lb_inc ? 110 : 25}" step="${ex.use_lb_inc ? '5' : '0.5'}" style="width:60px">
+                <button class="inc-unit-toggle" data-unit="${ex.use_lb_inc ? 'lb' : 'kg'}">${ex.use_lb_inc ? 'lb' : 'kg'}</button>
+                <span class="inc-eq">${ex.use_lb_inc ? '≈ ' + ex.min_increment.toFixed(1) + ' kg' : ''}</span>
+              </td>
               <td><span class="prog-ex-start">—</span></td>
               <td><span class="prog-ex-end">—</span></td>
               <td><span class="prog-ex-change">—</span></td>
@@ -780,6 +786,8 @@ async function loadProgram(id) {
         <input type="number" class="prog-new-ex-sets" value="3" min="1" max="20" style="width:50px" title="Sets">
         <input type="number" class="prog-new-ex-minreps" value="8" min="1" max="50" style="width:50px" title="Min reps">
         <input type="number" class="prog-new-ex-inc" value="2.5" min="0.5" max="25" step="0.5" style="width:60px" title="Min increment">
+        <button class="inc-unit-toggle" data-unit="kg">kg</button>
+        <span class="inc-eq"></span>
         <button class="btn-primary small add-ex-btn">Add</button>
       </div>
     </div>
@@ -790,6 +798,34 @@ async function loadProgram(id) {
     inp.addEventListener('change', async () => {
       const card = inp.closest('.program-day-card');
       await fetchJSON('/api/program-days/' + card.dataset.dayId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: inp.value }) });
+    });
+  });
+
+  // Wire inc-unit-toggle buttons (kg ↔ lb)
+  container.querySelectorAll('.inc-unit-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const td = btn.closest('td');
+      const addRow = btn.closest('.prog-add-ex-row');
+      const isAddRow = !!addRow;
+      const inc = isAddRow ? addRow.querySelector('.prog-new-ex-inc') : td.querySelector('.prog-ex-inc');
+      const eq = isAddRow ? addRow.querySelector('.inc-eq') : td.querySelector('.inc-eq');
+      const curUnit = btn.dataset.unit;
+      const val = parseFloat(inc.value) || 0;
+
+      if (curUnit === 'kg') {
+        // Switch to lb
+        inc.value = (val * 2.20462).toFixed(1);
+        inc.min = 5; inc.max = 110; inc.step = 5;
+        btn.dataset.unit = 'lb'; btn.textContent = 'lb';
+        eq.textContent = '≈ ' + (val).toFixed(1) + ' kg';
+      } else {
+        // Switch to kg
+        inc.value = (val / 2.20462).toFixed(1);
+        inc.min = 0.5; inc.max = 25; inc.step = 0.5;
+        btn.dataset.unit = 'kg'; btn.textContent = 'kg';
+        eq.textContent = '';
+      }
+      inc.dispatchEvent(new Event('change', { bubbles: true }));
     });
   });
 
@@ -907,11 +943,13 @@ async function loadProgram(id) {
       if (!name) return;
       const sets = parseInt(row.querySelector('.prog-new-ex-sets').value) || 3;
       const minReps = parseInt(row.querySelector('.prog-new-ex-minreps').value) || 8;
-      const inc = parseFloat(row.querySelector('.prog-new-ex-inc').value) || 2.5;
+      const isLb = row.querySelector('.inc-unit-toggle').dataset.unit === 'lb';
+      let inc = parseFloat(row.querySelector('.prog-new-ex-inc').value) || 2.5;
+      if (isLb) inc = inc / 2.20462;
       await fetch('/api/program-days/' + dayCard.dataset.dayId + '/exercises', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exercise_name: name, sets, min_reps: minReps, min_increment: inc })
+        body: JSON.stringify({ exercise_name: name, sets, min_reps: minReps, min_increment: inc, use_lb_inc: isLb ? 1 : 0 })
       });
       loadProgram(currentProgramId);
     });
@@ -921,17 +959,37 @@ async function loadProgram(id) {
   container.querySelectorAll('.prog-ex-name, .prog-ex-sets, .prog-ex-minreps, .prog-ex-inc').forEach(inp => {
     inp.addEventListener('change', async () => {
       const tr = inp.closest('tr');
+      const toggle = tr.querySelector('.inc-unit-toggle');
+      const isLb = toggle ? toggle.dataset.unit === 'lb' : false;
+      let inc = parseFloat(tr.querySelector('.prog-ex-inc').value) || 0;
+      if (isLb) inc = inc / 2.20462;
       const fields = {
         exercise_name: tr.querySelector('.prog-ex-name').value,
         sets: parseInt(tr.querySelector('.prog-ex-sets').value),
         min_reps: parseInt(tr.querySelector('.prog-ex-minreps').value),
-        min_increment: parseFloat(tr.querySelector('.prog-ex-inc').value)
+        min_increment: inc,
+        use_lb_inc: isLb ? 1 : 0
       };
       await fetch('/api/program-exercises/' + tr.dataset.exId, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(fields)
       });
+    });
+  });
+
+  // Live-update max reps when min_reps or increment change
+  container.querySelectorAll('.prog-ex-minreps, .prog-ex-inc').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const tr = inp.closest('tr');
+      const startW = parseFloat(tr.dataset.startWeight);
+      if (!startW || startW <= 0) return;
+      const minR = parseInt(tr.querySelector('.prog-ex-minreps').value) || 0;
+      const inc = parseFloat(tr.querySelector('.prog-ex-inc').value) || 0;
+      const maxReps = inc > 0 && minR > 0
+        ? Math.floor(30 * ((startW + inc) / startW * (1 + minR / 30) - 1))
+        : 0;
+      tr.querySelector('.prog-ex-maxreps').textContent = maxReps || '—';
     });
   });
 
@@ -947,7 +1005,9 @@ function loadProgramSimulation(id) {
   }).catch(() => {});
 }
 
+var _simData = null;
 async function showSimulation(data) {
+  _simData = data;
   const tableDiv = document.getElementById('program-sim-table');
 
   // Build chart data
@@ -1063,6 +1123,15 @@ async function showSimulation(data) {
           const tr = inp.closest('tr');
           tr.querySelector('.prog-ex-start').textContent = w.start_weight + ' kg';
           tr.querySelector('.prog-ex-end').textContent = w.end_weight + ' kg';
+          // Store start weight for live max-reps recalculation
+          tr.dataset.startWeight = w.start_weight;
+          // Compute max reps threshold from start weight, min reps, and increment
+          const minR = parseInt(tr.querySelector('.prog-ex-minreps').value) || 0;
+          const inc = parseFloat(tr.querySelector('.prog-ex-inc').value) || 0;
+          const maxReps = w.start_weight > 0 && inc > 0 && minR > 0
+            ? Math.floor(30 * ((w.start_weight + inc) / w.start_weight * (1 + minR / 30) - 1))
+            : 0;
+          tr.querySelector('.prog-ex-maxreps').textContent = maxReps || '—';
           const pct = ((w.end_weight - w.start_weight) / w.start_weight * 100).toFixed(1);
           const changeEl = tr.querySelector('.prog-ex-change');
           changeEl.textContent = (w.end_weight >= w.start_weight ? '+' : '') + pct + '%';
@@ -1083,6 +1152,132 @@ async function showSimulation(data) {
     tomorrow.setDate(tomorrow.getDate() + 1);
     dateInput.value = tomorrow.toISOString().slice(0, 10);
   }
+  // Populate exercise selector from simulation data
+  var exSelect = document.getElementById('program-ex-select');
+  var exChartContainer = document.getElementById('program-ex-chart-container');
+  var prBarDiv = document.getElementById('program-pr-bar');
+  exSelect.innerHTML = '<option value="">Select exercise...</option>';
+  var exSet = {};
+  for (var wi = 0; wi < data.weeks.length; wi++) {
+    var week = data.weeks[wi];
+    for (var di = 0; di < (week.days || []).length; di++) {
+      var day = week.days[di];
+      for (var ei = 0; ei < (day.exercises || []).length; ei++) {
+        var ex = day.exercises[ei];
+        exSet[ex.name] = true;
+      }
+    }
+  }
+  var exNames = Object.keys(exSet).sort();
+  if (exNames.length > 0) {
+    exChartContainer.style.display = '';
+    for (var ni = 0; ni < exNames.length; ni++) {
+      exSelect.innerHTML += '<option value="' + exNames[ni] + '">' + exNames[ni] + '</option>';
+    }
+    if (chartInstances.programEx) { chartInstances.programEx.destroy(); chartInstances.programEx = null; }
+    prBarDiv.innerHTML = '';
+  } else {
+    exChartContainer.style.display = 'none';
+  }
+  exSelect.onchange = function() {
+    var name = this.value;
+    if (!name || !_simData) { prBarDiv.innerHTML = ''; return; }
+    var sessions = [];
+    var minReps = 0;
+    for (var wi = 0; wi < _simData.weeks.length; wi++) {
+      var week = _simData.weeks[wi];
+      for (var di = 0; di < (week.days || []).length; di++) {
+        var day = week.days[di];
+        for (var ei = 0; ei < (day.exercises || []).length; ei++) {
+          var ex = day.exercises[ei];
+          if (ex.name === name) {
+            sessions.push({ week: week.week, day: day.day, wt: ex.weight, reps: ex.reps, rm: ex.predicted_1rm });
+            if (minReps === 0) minReps = ex.min_reps;
+          }
+        }
+      }
+    }
+    if (sessions.length === 0) { prBarDiv.innerHTML = ''; return; }
+
+    // Compute PR range values (same style as muscle tab)
+    var peakPR = sessions.reduce(function(max, s) { return s.rm > max ? s.rm : max; }, 0);
+    var floorPR = peakPR * 0.7;
+    var currentPR = sessions[sessions.length - 1].rm;
+    var peakConverted = convert1RMToWeight(peakPR, minReps);
+    var floorConverted = convert1RMToWeight(floorPR, minReps);
+    var currentConverted = convert1RMToWeight(currentPR, minReps);
+    var suggestedLow = computeWeightRIR3(currentPR, minReps);
+    var suggestedHigh = computeWeightRIR0(currentPR, minReps);
+
+    // PR range bar
+    var prMin = peakConverted * 0.5;
+    var prMax = peakConverted || 1;
+    var pct = function(v) { return v <= prMin ? 0 : (((v - prMin) / (prMax - prMin)) * 100).toFixed(1); };
+
+    prBarDiv.innerHTML =
+      '<div class="pr-bar-chart">' +
+        '<div class="pr-bar-legend">' +
+          '<span class="pr-bar-legend-item"><span class="pr-bar-legend-dot" style="background:#bc8cff"></span> Peak</span>' +
+          '<span class="pr-bar-legend-item"><span class="pr-bar-legend-dot" style="background:#8b949e"></span> Floor</span>' +
+          '<span class="pr-bar-legend-item"><span class="pr-bar-legend-dot" style="background:rgba(63,185,80,0.5)"></span> Rec</span>' +
+        '</div>' +
+        '<div class="pr-bar-track-wrap">' +
+          '<div class="pr-bar-range" style="left:' + pct(floorConverted) + '%;width:' + (100 - pct(floorConverted)) + '%"></div>' +
+          (suggestedLow > 0 && suggestedHigh > 0 ? '<div class="pr-bar-recommend" style="left:' + pct(suggestedLow) + '%;width:' + (pct(suggestedHigh) - pct(suggestedLow)) + '%"></div>' : '') +
+          '<div class="pr-marker" style="left:' + pct(floorConverted) + '%">' +
+            '<div class="pr-marker-line" style="background:#8b949e"></div>' +
+            '<div class="pr-marker-label" style="color:#8b949e">' + formatNum(floorConverted,1) + '</div>' +
+          '</div>' +
+          '<div class="pr-marker" style="left:' + pct(peakConverted) + '%">' +
+            '<div class="pr-marker-line" style="background:#bc8cff"></div>' +
+            '<div class="pr-marker-label" style="color:#bc8cff">' + formatNum(peakConverted,1) + '</div>' +
+          '</div>' +
+          (suggestedLow > 0 ? '<div class="pr-marker" style="left:' + pct(suggestedLow) + '%">' +
+            '<div class="pr-marker-line" style="background:#3fb950"></div>' +
+            '<div class="pr-marker-label" style="color:#3fb950">' + formatNum(suggestedLow,1) + '</div>' +
+          '</div>' : '') +
+          '<div class="pr-marker" style="left:' + pct(currentConverted) + '%">' +
+            '<div class="pr-marker-line" style="background:#d29922"></div>' +
+            '<div class="pr-marker-label pr-marker-label-bottom" style="color:#d29922">' + formatNum(currentConverted,1) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="pr-bar-scale">' +
+          '<span>' + formatNum(prMin,1) + ' (50% Peak)</span>' +
+          '<span>' + formatNum(prMax,1) + ' (Peak)</span>' +
+        '</div>' +
+        '<div class="pr-bar-stats">' +
+          '<span class="pr-bar-stat">Peak 1RM: <strong>' + formatNum(peakPR,1) + ' kg</strong></span>' +
+          '<span class="pr-bar-stat">Floor 1RM: <strong>' + formatNum(floorPR,1) + ' kg</strong></span>' +
+          '<span class="pr-bar-stat">PR DK 1RM: <strong>' + formatNum(currentPR,1) + ' kg</strong></span>' +
+          '<span class="pr-bar-stat">Reps: <strong>' + minReps + 'RM</strong></span>' +
+        '</div>' +
+      '</div>';
+
+    var labels = sessions.map(function(s) { return 'W' + s.week + 'D' + s.day; });
+    var rm1Converted = sessions.map(function(s) { return convert1RMToWeight(s.rm, minReps); });
+    // Convert each session's (weight, reps) to equivalent weight at minReps (Epley)
+    // so rep-only progression shows as visible upward slope on the chart
+    var wtData = sessions.map(function(s) { return s.wt * (30 + s.reps) / (30 + minReps); });
+    var recLowData = sessions.map(function(s) { return s.rm > 0 ? computeWeightRIR3(s.rm, minReps) : null; });
+    var recHighData = sessions.map(function(s) { return s.rm > 0 ? computeWeightRIR0(s.rm, minReps) : null; });
+    if (chartInstances.programEx) chartInstances.programEx.destroy();
+    var progExDatasets = [];
+    if (recLowData.some(function(v) { return v !== null; }) && recHighData.some(function(v) { return v !== null; })) {
+      progExDatasets.push(
+        { label: 'Rec Low', data: recLowData, borderColor: 'rgba(63,185,80,0.3)', backgroundColor: 'rgba(63,185,80,0.08)', fill: '+1', pointRadius: 0, borderDash: [3, 3] },
+        { label: 'Rec High', data: recHighData, borderColor: 'rgba(63,185,80,0.3)', pointRadius: 0, borderDash: [3, 3] }
+      );
+    }
+    progExDatasets.push(
+      { label: 'PR d\u1ef1 ki\u1ebfn (' + minReps + 'RM) (' + name + ')', data: rm1Converted, borderColor: '#3fb950', tension: 0.3, pointRadius: 0, spanGaps: true },
+      { label: 'Weight (' + minReps + 'RM equiv.)', data: wtData, borderColor: '#d29922', tension: 0.3, pointRadius: 3, spanGaps: true }
+    );
+    chartInstances.programEx = new Chart(document.getElementById('programExChart'), {
+      type: 'line',
+      data: { labels: labels, datasets: progExDatasets },
+      options: commonOpts()
+    });
+  };
 }
 
 function cssId(str) {

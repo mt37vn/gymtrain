@@ -111,6 +111,12 @@
               <canvas id="programSimChart"></canvas>
               <div id="program-sim-legend" class="legend-bar"></div>
             </div>
+            <div id="program-ex-chart-container" class="chart-container" style="display:none">
+              <h2>1RM Prediction (PR dự kiến)</h2>
+              <select id="program-ex-select" style="width:100%;margin-bottom:10px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:8px 10px"></select>
+              <div id="program-pr-bar"></div>
+              <canvas id="programExChart" style="height:250px"></canvas>
+            </div>
             <div id="program-sim-table"></div>
             <div id="program-calendar-export" class="chart-container">
               <h2>Export Calendar</h2>
@@ -222,8 +228,18 @@
       </section>
     </div>
   </main>
-  <script src="/app.js?v=5"></script>
+  <script src="/formulas.js?v=1"></script>
+  <script src="/app.js?v=6"></script>
 </body>
+<div id="pr-modal" class="modal-overlay" style="display:none">
+  <div class="modal-content" style="max-width:500px">
+    <div class="modal-header">
+      <h2 id="pr-modal-title">1RM Prediction</h2>
+      <span class="modal-close pr-modal-close">&times;</span>
+    </div>
+    <div id="pr-modal-body" style="padding:16px;max-height:400px;overflow-y:auto"></div>
+  </div>
+</div>
 <datalist id="exercise-datalist"></datalist>
 <div id="anomaly-modal" class="modal-overlay" style="display:none">
   <div class="modal-content">

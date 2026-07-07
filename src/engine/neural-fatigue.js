@@ -54,11 +54,21 @@ function checkDeload(fitness, fatigue, thresholdPct) {
   return 0;
 }
 
+function trainingStatus(tsb, fitness, detrainTh, overtrainTh) {
+  if (fitness <= 0) return { label: 'Detrain', cls: 'detrain', desc: 'No training load detected' };
+  const pct = (tsb / fitness) * 100;
+  if (pct > (detrainTh || 20)) return { label: 'Detrain', cls: 'detrain', desc: 'Low training load — consider increasing volume' };
+  if (pct >= 0) return { label: 'Deload', cls: 'deload', desc: 'Recovery zone — moderate training recommended' };
+  if (pct >= (overtrainTh || -20)) return { label: 'Productive', cls: 'productive', desc: 'Optimal load — good adaptation' };
+  return { label: 'Overtrain', cls: 'overtrain', desc: 'Excessive load — deload strongly recommended' };
+}
+
 module.exports = {
   computeSetTSS,
   computeDailyTSS,
   computeSMA,
   checkDeload,
+  trainingStatus,
   getExerciseMultiplier,
   getEffectiveExerciseWeight
 };

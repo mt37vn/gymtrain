@@ -5,6 +5,8 @@ const { simulateProgram, suggestWeight, trainingDayOffsets } = require('../engin
 const { parseCSVContent } = require('../csv-parser');
 const { runAnalysis } = require('../engine/analyzer');
 const { getParams, saveParams, resetParams } = require('../params');
+const { computeWeightAtRIR } = require('../engine/muscle-dynamics');
+const { nearestPlateWeight, BAR_KG } = require('../engine/plate-calc');
 const { getAuthUrl, handleCallback, getCalendarClient } = require('../google-calendar');
 
 const router = express.Router();
@@ -76,6 +78,12 @@ router.get('/plateaus', (req, res) => {
 router.get('/stats', (req, res) => {
   const stats = db.getAggregateStats();
   res.json(stats);
+});
+
+router.get('/plate-calc', (req, res) => {
+  const weight = parseFloat(req.query.weight);
+  if (!weight || weight <= 0) return res.json(null);
+  res.json(nearestPlateWeight(BAR_KG, weight));
 });
 
 router.get('/tss-breakdown', (req, res) => {
@@ -206,6 +214,27 @@ router.get('/anomalies', (req, res) => {
   res.json(result);
 });
 
+/* ─── Bulk set operations ─── */
+router.post('/sets/bulk-delete', express.json(), (req, res) => {
+  const ids = req.body.ids;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'No ids provided' });
+  for (const id of ids) db.deleteSet(parseInt(id));
+  runAnalysis();
+  res.json({ ok: true, deleted: ids.length });
+});
+
+router.put('/sets/bulk-update', express.json(), (req, res) => {
+  const { ids, weight, reps } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'No ids provided' });
+  const fields = {};
+  if (weight !== undefined) fields.weight = weight;
+  if (reps !== undefined) fields.reps = reps;
+  if (Object.keys(fields).length === 0) return res.status(400).json({ error: 'No fields to update' });
+  for (const id of ids) db.updateSet(parseInt(id), fields);
+  runAnalysis();
+  res.json({ ok: true, updated: ids.length });
+});
+
 router.put('/sets/:id', express.json(), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Invalid id' });
@@ -227,19 +256,13 @@ router.delete('/sets/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-function computeWeightRIR3(pre, reps) {
-  return Math.ceil(pre * 30 / (34 + reps) * 10) / 10;
-}
-function computeWeightRIR0(pre, reps) {
-  return Math.floor(pre * 30 / (30 + reps) * 10) / 10;
-}
-
 /* ─── Program Building ─── */
 
 router.get('/programs/suggest-weight', (req, res) => {
   const { exercise, min_reps, rir } = req.query;
   if (!exercise || !min_reps) return res.json({ weight: 0, predicted_1rm: 0 });
-  res.json(suggestWeight(exercise, parseInt(min_reps), parseInt(rir) || 2));
+  const rirPct = rir !== undefined ? parseFloat(rir) : undefined;
+  res.json(suggestWeight(exercise, parseInt(min_reps), rirPct));
 });
 
 router.get('/programs', (req, res) => {
@@ -464,7 +487,7 @@ router.delete('/program-days/:id', (req, res) => {
 
 router.post('/program-days/:id/exercises', express.json(), (req, res) => {
   const body = req.body;
-  const exId = db.addProgramExercise(parseInt(req.params.id), body.exercise_name, body.sets, body.min_reps, body.min_increment);
+  const exId = db.addProgramExercise(parseInt(req.params.id), body.exercise_name, body.sets, body.min_reps, body.min_increment, body.use_lb_inc);
   res.json({ id: exId });
 });
 
@@ -522,8 +545,10 @@ router.get('/exercise-status', (req, res) => {
       const predictedPR = last ? (last.rm1_predicted || 0) : 0;
 
       const lastKg = lastPR > 0 ? +(lastPR * 30 / (30 + reps)).toFixed(1) : 0;
-      const recLow = lastPR > 0 && predictedPR > 0 ? computeWeightRIR3(predictedPR, reps) : 0;
-      const recHigh = lastPR > 0 && predictedPR > 0 ? computeWeightRIR0(predictedPR, reps) : 0;
+      const params = getParams();
+      const rirTh = params.rir_threshold || 0.3;
+      const recLow = lastPR > 0 && predictedPR > 0 ? computeWeightAtRIR(predictedPR, reps, rirTh) : 0;
+      const recHigh = lastPR > 0 && predictedPR > 0 ? computeWeightAtRIR(predictedPR, reps, 0) : 0;
 
       let status = 'no_data';
       if (lastPR > 0) {

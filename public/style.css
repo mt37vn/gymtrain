@@ -206,8 +206,29 @@ h1 {
 .card .value.positive { color: #3fb950; }
 .card .value.negative { color: #f85149; }
 .card-wide { grid-column: span 2; }
-.summary-cards .positive { color: #3fb950; }
+.inc-eq { font-size:0.65rem; color:#8b949e; margin-left:3px; }
+.inc-unit-toggle {
+  background: transparent;
+  color: #8b949e;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 2px 4px;
+  margin-left: 2px;
+}
+.inc-unit-toggle:hover { color: #58a6ff; border-color: #58a6ff; }
+.mass-edit-input {
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+}
+.mass-edit-input:focus { border-color: #58a6ff; outline: none; }
 .summary-cards .negative { color: #f85149; }
+.summary-cards .positive { color: #3fb950; }
 .card .value.neutral { color: #d29922; }
 
 .card .value.productive { color: #3fb950; }

@@ -135,6 +135,11 @@ function runAnalysis() {
     const tsb = fitness - fatigue;
     const deloadWarning = checkDeload(fitness, fatigue, OVERTRAIN_TH);
 
+    let totalEffectiveSets = 0;
+    for (const st of Object.values(exerciseState)) {
+      totalEffectiveSets += st.effectiveHistory[0] || 0;
+    }
+
     db.upsertDailyMetric({
       day_key: dayKey,
       daily_tss: dailyTSS,
@@ -149,7 +154,8 @@ function runAnalysis() {
       plateau_hit: 0,
       anabolism: 0,
       catabolism: 0,
-      total_sets: totalSets
+      total_sets: totalSets,
+      total_effective_sets: totalEffectiveSets
     });
 
     if (isTrainingDay) {
