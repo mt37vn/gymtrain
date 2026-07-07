@@ -149,58 +149,115 @@ async function renderTSS() {
   const brkFrom = timeline.length > 0 ? timeline[0].day_key : '';
   const brkTo = timeline.length > 0 ? timeline[timeline.length - 1].day_key : '';
   const brkQs = brkFrom && brkTo ? '?from=' + brkFrom + '&to=' + brkTo : '';
-  const breakdown = brkQs ? await fetchJSON('/api/tss-breakdown' + brkQs) : [];
-
+  let trainingDaysAll = brkQs ? await fetchJSON('/api/training-days' + brkQs) : [];
   document.getElementById('stats-bar').textContent =
     `${stats.totalSets} sets · ${stats.totalDays} days`;
 
   /* Training status */
   const status = trainingStatus(summary.tsb, summary.ctl, detrainTh, overtrainTh);
 
+  /* Trim first fitness_window_days when "Since start" is active */
+  const trimStart = (!tr.days && !tr.from && !tr.to) ? (params.fitness_window_days || 42) : 0;
+  if (trimStart > 0 && timeline.length > trimStart) {
+    const trimmedKeys = new Set(timeline.slice(trimStart).map(d => d.day_key));
+    trainingDaysAll = trainingDaysAll.filter(d => trimmedKeys.has(d.day_key));
+  }
+  const tl = trimStart > 0 && timeline.length > trimStart ? timeline.slice(trimStart) : timeline;
+
+  const labels = tl.map(d => d.day_key);
+  const ctlData = tl.map(d => d.ctl);
+  const atlData = tl.map(d => d.atl);
+  const tsbData = tl.map(d => d.tsb);
+  const tssData = tl.map(d => d.daily_tss);
+
   /* Summary cards */
+  const tsbPct = summary.ctl > 0 ? (summary.tsb / summary.ctl) * 100 : 0;
+  let firstFit = 0, lastFit = 0;
+  for (let i = 0; i < ctlData.length; i++) {
+    if (ctlData[i] > 0) {
+      if (firstFit === 0) firstFit = ctlData[i];
+      lastFit = ctlData[i];
+    }
+  }
+  const fitChange = firstFit > 0 ? ((lastFit - firstFit) / firstFit) * 100 : 0;
+  const fitChangeCls = fitChange > 0 ? 'positive' : fitChange < 0 ? 'negative' : '';
+  const statusLabels = { detrain: 'Detrain', deload: 'Deload', productive: 'Productive', overtrain: 'Overtrain' };
+  const statusColorsPie = { detrain: '#8b949e', deload: '#58a6ff', productive: '#3fb950', overtrain: '#f85149' };
+  const statusCounts = { detrain: 0, deload: 0, productive: 0, overtrain: 0 };
+  for (let i = 0; i < tsbData.length; i++) {
+    const st = trainingStatus(tsbData[i], ctlData[i], detrainTh, overtrainTh);
+    statusCounts[st.cls]++;
+  }
   document.getElementById('summary-cards-tss').innerHTML = `
     <div class="card">
       <h3>Training Status</h3>
       <div class="value ${status.cls}">${status.label}</div>
       <div class="hint">${status.desc}</div>
     </div>
-    <div class="card"><h3>Fitness (6w SMA)</h3><div class="value positive">${formatNum(summary.ctl)}</div></div>
-    <div class="card"><h3>Fatigue (1w SMA)</h3><div class="value negative">${formatNum(summary.atl)}</div></div>
-    <div class="card"><h3>TSB (% Fitness)</h3><div class="value ${summary.tsb >= 0 ? 'positive' : 'negative'}">${formatNum(summary.ctl > 0 ? (summary.tsb / summary.ctl) * 100 : 0, 1)}%</div></div>
-    <div class="card"><h3>TSB</h3><div class="value ${summary.tsb >= 0 ? 'positive' : 'negative'}">${formatNum(summary.tsb, 1)}</div></div>
+    <div class="card"><h3>TSB (% Fitness)</h3><div class="value ${status.cls}">${formatNum(tsbPct, 1)}%</div></div>
+    <div class="card"><h3>Fitness (${params.fitness_window_days || 42}d SMA)</h3><div class="value positive">${formatNum(summary.ctl)}</div><div style="font-size:0.7rem;color:#8b949e;margin-top:2px">${fitChange > 0 ? '+' : ''}${formatNum(fitChange, 1)}% <span class="${fitChangeCls}">${fitChangeCls === 'positive' ? '▲' : fitChangeCls === 'negative' ? '▼' : ''}</span></div></div>
+    <div class="card"><h3>Fatigue (${params.fatigue_window_days || 7}d SMA)</h3><div class="value negative">${formatNum(summary.atl)}</div></div>
+    <div class="card"><h3>TSB</h3><div class="value blue">${formatNum(summary.tsb, 1)}</div></div>
+    <div class="card" id="status-pie-card">
+      <h3>Training Days Breakdown</h3>
+      <canvas id="statusPieChart" class="status-pie-canvas"></canvas>
+      <div style="font-size:0.7rem;color:#8b949e;text-align:center;margin-top:4px">
+        ${Object.entries(statusCounts).filter(([k,v]) => v > 0).map(([k,v]) =>
+          `<span style="display:inline-block;margin:0 4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColorsPie[k]};margin-right:3px"></span>${v}</span>`
+        ).join('')}
+      </div>
+    </div>
   `;
 
-  const labels = timeline.map(d => d.day_key);
-  const ctlData = timeline.map(d => d.ctl);
-  const atlData = timeline.map(d => d.atl);
-  const tsbData = timeline.map(d => d.tsb);
-  const tssData = timeline.map(d => d.daily_tss);
+  if (chartInstances.statusPie) chartInstances.statusPie.destroy();
+  const pieLabels = Object.keys(statusCounts).filter(k => statusCounts[k] > 0);
+  const pieDataArr = pieLabels.map(k => statusCounts[k]);
+  const pieColorsArr = pieLabels.map(k => statusColorsPie[k]);
+  if (pieLabels.length > 0) {
+    chartInstances.statusPie = new Chart(document.getElementById('statusPieChart'), {
+      type: 'doughnut',
+      data: { labels: pieLabels, datasets: [{ data: pieDataArr, backgroundColor: pieColorsArr, borderColor: '#0d1117', borderWidth: 2 }] },
+      options: {
+        responsive: true, maintainAspectRatio: true, animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => ctx.label + ': ' + ctx.parsed + ' days' } }
+        },
+        cutout: '65%'
+      }
+    });
+  }
 
-  destroyCharts(['fatigue', 'tss']);
+  destroyCharts(['combined']);
 
   const statusColors = tsbData.map((tsb, i) => trainingStatus(tsb, ctlData[i], detrainTh, overtrainTh).cls);
 
-  chartInstances.fatigue = new Chart(document.getElementById('fatigueChart'), {
+  chartInstances.combined = new Chart(document.getElementById('combinedChart'), {
     type: 'line',
     data: {
       labels,
       datasets: [
-        { label: 'Fitness (6w SMA)', data: ctlData, borderColor: '#3fb950', tension: 0.3, pointRadius: 0 },
-        { label: 'Fatigue (1w SMA)', data: atlData, borderColor: '#f85149', tension: 0.3, pointRadius: 0 },
-        { label: 'Zero', data: Array(labels.length).fill(0), borderColor: 'rgba(201,209,217,0.5)', tension: 0, pointRadius: 0, pointHitRadius: 0, pointHoverRadius: 0 },
-        { label: 'TSB', data: tsbData, borderColor: '#d29922', tension: 0.3, pointRadius: 0 }
+        { label: 'TSS', data: tssData, type: 'bar', backgroundColor: 'rgba(255,255,255,0.5)', borderColor: 'transparent', borderWidth: 0, order: 0, barPercentage: 0.3, categoryPercentage: 0.8 },
+        { label: `Fitness (${params.fitness_window_days || 42}d SMA)`, data: ctlData, borderColor: '#3fb950', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3, order: 1 },
+        { label: `Fatigue (${params.fatigue_window_days || 7}d SMA)`, data: atlData, borderColor: '#f85149', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3, order: 1 },
+        { label: 'Zero', data: Array(labels.length).fill(0), borderColor: 'rgba(201,209,217,0.5)', tension: 0, pointRadius: 0, pointHitRadius: 0, pointHoverRadius: 0, order: 1 },
+        { label: 'TSB', data: tsbData, borderColor: '#58a6ff', backgroundColor: 'transparent', pointRadius: 2, tension: 0.3, order: 1 }
       ]
     },
     options: {
-      ...commonOpts(),
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      layout: { padding: { bottom: 60, right: 70 } },
       plugins: {
-        ...commonOpts().plugins,
-        fatigueZones: { statusColors: statusColors },
-        legend: { labels: { color: '#c9d1d9', filter: function(item) { return item.text !== 'Zero'; } } },
+        fatigueZones: { statusColors },
+        legend: {
+          labels: { color: '#c9d1d9', filter: function(item) { return item.text !== 'Zero'; } }
+        },
         tooltip: {
           mode: 'index',
           intersect: false,
-          filter: function(item) { return item.datasetIndex !== 2; },
+          filter: function(item) { return item.datasetIndex !== 3; },
           callbacks: {
             afterBody: function(items) {
               const idx = items[0].dataIndex;
@@ -217,49 +274,102 @@ async function renderTSS() {
         mode: 'index',
         intersect: false
       },
-      layout: { padding: { right: 70, bottom: 60 } }
+      scales: {
+        x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' }, beginAtZero: true }
+      },
+      onClick: function(e) {
+        const pts = this.getElementsAtEventForMode(e, 'nearest', { intersect: true }, false);
+        if (pts.length === 0) return;
+        const idx = pts[0].index;
+        const dayKey = labels[idx];
+        if (!dayKey) return;
+        const day = (trainingDaysAll || []).find(d => d.day_key === dayKey);
+        if (!day) return;
+        const header = day.day_key + ' · ' + day.day_name + (day.workout ? ' — ' + escapeHtml(day.workout) : '');
+        document.getElementById('tss-detail-title').textContent = header;
+        document.getElementById('tss-detail-body').innerHTML = `
+          <table class="program-sim-day-table">
+            <thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th><th>Sets</th><th>TSS</th></tr></thead>
+            <tbody>
+              ${day.exercises.map(ex => `<tr>
+                <td>${escapeHtml(ex.exercise)}</td>
+                <td>${ex.weight} kg</td>
+                <td>${ex.reps}</td>
+                <td class="num">${ex.sets}</td>
+                <td class="num">${formatNum(ex.tss, 1)}</td>
+              </tr>`).join('')}
+              <tr class="sim-total-row"><td colspan="4"><strong>Total</strong></td><td><strong>${formatNum(day.total_tss, 1)}</strong></td></tr>
+            </tbody>
+          </table>`;
+        document.getElementById('tss-detail-modal').style.display = 'flex';
+      }
     }
   });
 
   buildLegend('legend-tss', detrainTh, overtrainTh);
 
-  const tssAvg = tssData.reduce((a, b) => a + b, 0) / tssData.length || 0;
-
-  chartInstances.tss = new Chart(document.getElementById('tssChart'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { label: 'TSS', data: tssData, backgroundColor: tssData.map(v => v > 0 ? 'rgba(63,185,80,0.6)' : 'rgba(48,54,61,0.3)'), borderRadius: 2 },
-        { type: 'line', label: 'Avg', data: Array(labels.length).fill(tssAvg), borderColor: 'rgba(201,209,217,0.7)', borderDash: [4,4], pointRadius: 0, pointHitRadius: 0, pointHoverRadius: 0 }
-      ]
-    },
-    options: {
-      ...commonOpts(),
-      plugins: {
-        legend: { labels: { color: '#c9d1d9', filter: function(item) { return item.text !== 'Avg'; } } },
-        tooltip: { mode: 'index', intersect: false, filter: function(item) { return item.datasetIndex !== 1; } }
-      },
-      scales: { ...commonOpts().scales, y: { ...commonOpts().scales.y, beginAtZero: true } }
-    }
-  });
-
-  /* TSS breakdown table */
-  const brkTbody = document.querySelector('#tss-breakdown-table tbody');
-  if (!breakdown || breakdown.length === 0) {
-    brkTbody.innerHTML = '<tr class="empty-msg"><td colspan="4" style="color:#8b949e;text-align:center;padding:16px;">No training days in this range.</td></tr>';
+  /* Exercise summary table */
+  const exSummary = document.querySelector('#exercise-summary-table tbody');
+  const exSection = document.getElementById('exercise-summary-section');
+  if (!trainingDaysAll || trainingDaysAll.length === 0) {
+    exSection.style.display = 'none';
   } else {
-    let rows = '';
-    for (let i = breakdown.length - 1; i >= 0; i--) {
-      const d = breakdown[i];
-      rows += `<tr>
-        <td>${d.day_key}</td>
-        <td>${d.exercise}</td>
-        <td class="num">${d.sets}</td>
-        <td class="num">${formatNum(d.tss, 1)}</td>
-      </tr>`;
+    exSection.style.display = '';
+    const exMap = {};
+    for (const day of trainingDaysAll) {
+      for (const ex of day.exercises) {
+        if (!exMap[ex.exercise]) exMap[ex.exercise] = { first: null, last: null, totalSets: 0 };
+        const entry = exMap[ex.exercise];
+        entry.totalSets += ex.sets;
+        if (!entry.first) entry.first = { day_key: day.day_key, weight: ex.weight };
+        entry.last = { day_key: day.day_key, weight: ex.weight };
+      }
     }
-    brkTbody.innerHTML = rows;
+    let exData = Object.keys(exMap).map(name => {
+      const e = exMap[name];
+      const change = e.first.weight > 0 ? ((e.last.weight - e.first.weight) / e.first.weight * 100) : 0;
+      return { name, totalSets: e.totalSets, startWeight: e.first.weight, endWeight: e.last.weight, change };
+    });
+
+    let sortKey = 'totalSets';
+    let sortDir = -1;
+
+    function renderExSummary() {
+      const sorted = [...exData].sort((a, b) => {
+        let va = a[sortKey], vb = b[sortKey];
+        if (typeof va === 'string') va = va.toLowerCase();
+        if (typeof vb === 'string') vb = vb.toLowerCase();
+        return va < vb ? -sortDir : va > vb ? sortDir : 0;
+      });
+      const arrow = d => sortKey === d ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
+      document.querySelectorAll('#exercise-summary-table thead th').forEach(th => {
+        const key = th.dataset.sort;
+        th.textContent = key ? ({ exercise: 'Exercise', totalSets: 'Total Sets', startWeight: 'Start Weight', endWeight: 'End Weight', change: 'Change' }[key] || key) + (key === sortKey ? (sortDir === 1 ? ' ▲' : ' ▼') : '') : th.textContent;
+      });
+      exSummary.innerHTML = sorted.map(e => {
+        const cls = e.change > 0 ? 'pos' : e.change < 0 ? 'neg' : '';
+        return `<tr>
+          <td>${escapeHtml(e.name)}</td>
+          <td class="num">${e.totalSets}</td>
+          <td class="num">${formatNum(e.startWeight, 1)}</td>
+          <td class="num">${formatNum(e.endWeight, 1)}</td>
+          <td class="num ${cls}">${e.change > 0 ? '+' : ''}${formatNum(e.change, 1)}%</td>
+        </tr>`;
+      }).join('');
+    }
+
+    renderExSummary();
+
+    document.querySelectorAll('#exercise-summary-table thead th[data-sort]').forEach(th => {
+      th.style.cursor = 'pointer';
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) sortDir *= -1;
+        else { sortKey = key; sortDir = key === 'name' ? 1 : -1; }
+        renderExSummary();
+      });
+    });
   }
 }
 
@@ -591,12 +701,12 @@ function switchTab(tabId) {
 
   if (tabId === 'tss') {
     renderTSS();
+  } else if (tabId === 'program') {
+    renderProgramTab();
   } else if (tabId === 'muscle') {
     renderMuscle();
   } else if (tabId === 'settings') {
     renderSettings();
-  } else if (tabId === 'program') {
-    renderProgramTab();
   }
 }
 
@@ -1275,6 +1385,12 @@ async function init() {
   dsModal.querySelector('.day-sets-close').addEventListener('click', () => { dsModal.style.display = 'none'; });
   dsModal.addEventListener('click', (e) => { if (e.target === dsModal) dsModal.style.display = 'none'; });
 
+  /* TSS detail modal close */
+  const tdModal = document.getElementById('tss-detail-modal');
+  tdModal.querySelector('.tss-detail-close').addEventListener('click', () => { tdModal.style.display = 'none'; });
+  tdModal.addEventListener('click', (e) => { if (e.target === tdModal) tdModal.style.display = 'none'; });
+  dsModal.addEventListener('click', (e) => { if (e.target === dsModal) dsModal.style.display = 'none'; });
+
   document.getElementById('check-data-btn').addEventListener('click', async () => {
     modal.style.display = 'flex';
     modalBody.innerHTML = '<div class="anomaly-loading">Checking data...</div>';
@@ -1485,9 +1601,49 @@ async function init() {
     }
   });
 
+  /* Favourite time range */
+  const favBtn = document.getElementById('fav-time-btn');
+  function applyFavTimeRange() {
+    const fav = localStorage.getItem('favTimeRange');
+    if (fav) {
+      try {
+        const saved = JSON.parse(fav);
+        if (saved.value === 'custom' && saved.from && saved.to) {
+          document.getElementById('time-range').value = 'custom';
+          document.getElementById('date-from-tss').value = saved.from;
+          document.getElementById('date-to-tss').value = saved.value;
+          document.querySelector('#controls-tss .date-range-group').style.display = 'flex';
+          favBtn.classList.add('active');
+        } else if (saved.value) {
+          document.getElementById('time-range').value = saved.value;
+          favBtn.classList.add('active');
+        }
+      } catch (_) {}
+    }
+  }
+  favBtn.addEventListener('click', () => {
+    const sel = document.getElementById('time-range');
+    const isActive = favBtn.classList.toggle('active');
+    if (isActive) {
+      const val = sel.value;
+      if (val === 'custom') {
+        localStorage.setItem('favTimeRange', JSON.stringify({
+          value: 'custom',
+          from: document.getElementById('date-from-tss').value,
+          to: document.getElementById('date-to-tss').value
+        }));
+      } else {
+        localStorage.setItem('favTimeRange', JSON.stringify({ value: val }));
+      }
+    } else {
+      localStorage.removeItem('favTimeRange');
+    }
+  });
+  applyFavTimeRange();
+
   /* Initial render */
-  document.getElementById('time-range').value = '30';
-  document.getElementById('time-range-2').value = '30';
+  document.getElementById('time-range').value = '84';
+  document.getElementById('time-range-2').value = '84';
   renderTSS();
 }
 

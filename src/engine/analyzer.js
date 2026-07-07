@@ -1,4 +1,4 @@
-const { computeSetTSS, computeSMA, checkDeload, getExerciseMultiplier } = require('./neural-fatigue');
+const { computeSetTSS, computeSMA, checkDeload, getExerciseMultiplier, getEffectiveExerciseWeight } = require('./neural-fatigue');
 const { computeEpley1RM } = require('./muscle-dynamics');
 const db = require('../database');
 const { getParams } = require('../params');
@@ -78,8 +78,11 @@ function runAnalysis() {
         }
 
         let exTSS = 0;
+        const paramBw = params.bodyweight || 70;
         for (const s of sets) {
-          const tss = computeSetTSS(s.weight, s.reps, params.bodyweight || 70) * getExerciseMultiplier(s.exercise);
+          const bw = s.bodyweight || paramBw;
+          const effW = getEffectiveExerciseWeight(s.exercise, s.weight, bw);
+          const tss = computeSetTSS(effW, s.reps, bw) * getExerciseMultiplier(s.exercise);
           dailyTSS += tss;
           exTSS += tss;
         }
@@ -88,8 +91,10 @@ function runAnalysis() {
         let effCount = 0;
         if (state.pre > 0) {
           for (const s of sets) {
-            if (s.weight <= 0 || s.reps <= 0) continue;
-            const maxReps = Math.floor(30 * (state.pre / s.weight - 1));
+            const bw = s.bodyweight || paramBw;
+            const effW = getEffectiveExerciseWeight(s.exercise, s.weight, bw);
+            if (effW <= 0 || s.reps <= 0) continue;
+            const maxReps = Math.floor(30 * (state.pre / effW - 1));
             if (maxReps < 1) { effCount++; continue; }
             const rir = maxReps - s.reps;
             if (rir <= Math.max(1, Math.round(s.reps * RIR))) effCount++;
@@ -100,7 +105,8 @@ function runAnalysis() {
 
         // Compute actual Epley
         const todayEpley = sets.reduce((max, s) => {
-          const ep = computeEpley1RM(s.weight, s.reps);
+          const bw = s.bodyweight || paramBw;
+          const ep = computeEpley1RM(getEffectiveExerciseWeight(s.exercise, s.weight, bw), s.reps);
           return ep > max ? ep : max;
         }, 0);
         if (state.pre === 0 || todayEpley > state.pre) state.pre = todayEpley;

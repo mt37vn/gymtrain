@@ -86,6 +86,26 @@ router.get('/tss-breakdown', (req, res) => {
   res.json(rows);
 });
 
+router.get('/training-days', (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.json([]);
+  const rows = db.getTrainingDayDetails(from, to);
+  const days = [];
+  let current = null;
+  const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  for (const r of rows) {
+    if (!current || r.day_key !== current.day_key) {
+      const d = new Date(r.day_key + 'T00:00:00');
+      const dayName = DAY_NAMES[d.getDay()];
+      current = { day_key: r.day_key, day_name: dayName, workout: r.workout || '', exercises: [], total_tss: 0 };
+      days.push(current);
+    }
+    current.exercises.push({ exercise: r.exercise, weight: r.weight, reps: r.reps, sets: r.sets, tss: r.tss });
+    current.total_tss += r.tss;
+  }
+  res.json(days);
+});
+
 router.get('/last-reps', (req, res) => {
   const exercise = req.query.exercise;
   if (!exercise) return res.json(null);

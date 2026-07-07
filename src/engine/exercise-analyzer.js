@@ -1,13 +1,16 @@
 const db = require('../database');
 const { computeEpley1RM } = require('./muscle-dynamics');
+const { getEffectiveExerciseWeight } = require('./neural-fatigue');
 const { getParams } = require('../params');
 
-function countEffectiveSets(sets, pre, rirThreshold) {
+function countEffectiveSets(sets, pre, rirThreshold, exercise, defaultBw) {
   if (pre <= 0) return 0;
   let count = 0;
   for (const s of sets) {
-    if (s.weight <= 0 || s.reps <= 0) continue;
-    const maxReps = Math.floor(30 * (pre / s.weight - 1));
+    const bw = s.bodyweight || defaultBw;
+    const effW = getEffectiveExerciseWeight(exercise, s.weight, bw);
+    if (effW <= 0 || s.reps <= 0) continue;
+    const maxReps = Math.floor(30 * (pre / effW - 1));
     if (maxReps < 1) { count++; continue; }
     const rir = maxReps - s.reps;
     if (rir <= Math.max(1, Math.round(s.reps * rirThreshold))) count++;
@@ -61,12 +64,14 @@ function analyzeExercise(exercise) {
       sets = db.getSetsByDayAndExercise(dayKey, exercise);
       totalSets = sets.length;
 
-      effectiveSetsToday = countEffectiveSets(sets, prevPRe, RIR);
+      const paramBw = params.bodyweight || 70;
+      effectiveSetsToday = countEffectiveSets(sets, prevPRe, RIR, exercise, paramBw);
       effectiveHistory[0] = effectiveSetsToday;
       if (effectiveSetsToday > 0) lastEffectiveDay = i;
 
       prActual = sets.reduce((max, s) => { if (s.is_warmup) return max;
-        const ep = computeEpley1RM(s.weight, s.reps);
+        const bw = s.bodyweight || paramBw;
+        const ep = computeEpley1RM(getEffectiveExerciseWeight(exercise, s.weight, bw), s.reps);
         return ep > max ? ep : max;
       }, 0);
     }

@@ -205,12 +205,17 @@ h1 {
 
 .card .value.positive { color: #3fb950; }
 .card .value.negative { color: #f85149; }
+.card-wide { grid-column: span 2; }
+.summary-cards .positive { color: #3fb950; }
+.summary-cards .negative { color: #f85149; }
 .card .value.neutral { color: #d29922; }
 
 .card .value.productive { color: #3fb950; }
 .card .value.strained { color: #d29922; }
 .card .value.overtrain { color: #f85149; }
-.card .value.detrain { color: #58a6ff; }
+.card .value.detrain { color: #8b949e; }
+.card .value.deload { color: #58a6ff; }
+.card .value.blue { color: #58a6ff; }
 
 .card .hint {
   font-size: 0.7rem;
@@ -278,6 +283,9 @@ h1 {
   padding: 20px;
   margin-bottom: 24px;
 }
+#exercise-summary-section {
+  margin-bottom: 24px;
+}
 
 .chart-container h2 {
   font-size: 1rem;
@@ -303,7 +311,7 @@ canvas {
 
 .table-scroll {
   max-height: 400px;
-  overflow-y: auto;
+  overflow: auto;
   border: 1px solid #30363d;
   border-radius: 8px;
 }
@@ -337,8 +345,11 @@ canvas {
 }
 
 .table-scroll td.num {
-  text-align: right;
+  text-align: center;
   font-variant-numeric: tabular-nums;
+}
+.table-scroll th.num {
+  text-align: center;
 }
 
 .table-scroll td.pos { color: #3fb950; }
@@ -549,6 +560,28 @@ th {
   outline: none;
   border-color: #58a6ff;
   box-shadow: 0 0 0 2px rgba(88,166,255,0.2);
+}
+
+.fav-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  color: #484f58;
+  border: none;
+  padding: 4px 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  line-height: 1;
+  z-index: 1;
+  transition: color 0.15s;
+}
+.fav-btn:hover { color: #58a6ff; }
+.fav-btn.active { color: #d29922; }
+
+#time-range, #time-range-2 {
+  padding-right: 28px;
 }
 
 .reps-input {
@@ -1130,6 +1163,26 @@ th {
   flex-wrap: wrap;
 }
 
+.day-boxes-container {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.day-boxes-container .week-column {
+  flex: 0 0 auto;
+  min-width: 360px;
+}
+.day-boxes-container .program-day-box {
+  min-width: 340px;
+  margin-bottom: 8px;
+}
+.status-pie-canvas {
+  width: 100px;
+  height: 100px;
+  display: block;
+  margin: 0 auto;
+}
 .weight-up { color: #3fb950; font-weight: bold; }
 .weight-down { color: #f85149; }
 .sim-total-row td { border-top: 2px solid #30363d; font-weight: bold; }

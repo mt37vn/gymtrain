@@ -233,6 +233,28 @@ function getTSSBreakdown(fromKey, toKey) {
   return db.prepare('SELECT * FROM tss_breakdown WHERE day_key >= ? AND day_key <= ? ORDER BY day_key, exercise').all(fromKey, toKey);
 }
 
+function getTrainingDayDetails(fromKey, toKey) {
+  return db.prepare(`
+    SELECT day_key, exercise, weight, reps, sets, tss, workout
+    FROM (
+      SELECT
+        ws.day_key,
+        ws.exercise,
+        ws.weight,
+        ws.reps,
+        ws.workout,
+        COUNT(*) OVER (PARTITION BY ws.day_key, ws.exercise) as sets,
+        COALESCE(tb.tss, 0) as tss,
+        ROW_NUMBER() OVER (PARTITION BY ws.day_key, ws.exercise ORDER BY ws.weight DESC, ws.id DESC) as rn
+      FROM workout_sets ws
+      LEFT JOIN tss_breakdown tb ON tb.day_key = ws.day_key AND tb.exercise = ws.exercise
+      WHERE ws.day_key >= ? AND ws.day_key <= ? AND ws.is_warmup = 0
+    )
+    WHERE rn = 1
+    ORDER BY day_key, exercise
+  `).all(fromKey, toKey);
+}
+
 function getFirstAndLastDay() {
   const first = db.prepare('SELECT MIN(day_key) as first FROM workout_sets').get();
   const last = db.prepare('SELECT MAX(day_key) as last FROM workout_sets').get();
@@ -394,6 +416,7 @@ module.exports = {
   getDb,
   upsertTSSBreakdown,
   getTSSBreakdown,
+  getTrainingDayDetails,
   getWorkingSets,
   updateSet,
   deleteSet,
