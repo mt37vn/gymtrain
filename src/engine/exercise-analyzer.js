@@ -79,7 +79,7 @@ function analyzeExercise(exercise) {
     const sumPast = effectiveHistory.slice(1, WIN + 1).reduce((a, b) => a + b, 0);
     const growthRate = Math.min(G_MAX, sumPast * G_SET);
     const daysSinceEffective = i - lastEffectiveDay;
-    const netRate = daysSinceEffective <= PROTECT ? growthRate : growthRate - DECAY;
+    const netRate = daysSinceEffective === 0 ? growthRate - 2 * DECAY : (daysSinceEffective <= PROTECT ? growthRate : growthRate - DECAY);
 
     if (prevPRe > 0) {
       const floorPR = peakPR * FLOOR;
@@ -115,7 +115,7 @@ function analyzeExercise(exercise) {
       daily_change_pct: (prevPRe > 0) ? netRate * 100 : 0,
       growth_type: (prActual > prevPRe && prevPRe > 0) ? 'correction' : (growthRate > 0 ? 'growth' : 'decay'),
       growth_pct: growthRate * 100,
-      decay_pct: (daysSinceEffective <= PROTECT) ? 0 : DECAY * 100,
+      decay_pct: daysSinceEffective === 0 ? 2 * DECAY * 100 : (daysSinceEffective <= PROTECT ? 0 : DECAY * 100),
       net_pct: netRate * 100,
       effective_sets: effectiveSetsToday
     });

@@ -935,33 +935,40 @@ th {
 
 /* ---- Program Building ---- */
 #program-layout {
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
+  /* block layout — sidebar moved to top bar */
 }
-#program-sidebar {
-  flex: 0 0 240px;
+#program-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   background: #161b22;
   border: 1px solid #30363d;
   border-radius: 8px;
-  padding: 16px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
 }
-#program-sidebar h3 {
+#program-topbar h3 {
   font-size: 0.9rem;
   color: #c9d1d9;
-  margin-bottom: 12px;
+  white-space: nowrap;
+  margin: 0;
+}
+#program-list-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
 }
 #program-main {
-  flex: 1;
   min-width: 0;
 }
 .program-list-item {
-  padding: 8px 12px;
+  padding: 4px 12px;
   font-size: 0.85rem;
   color: #c9d1d9;
   cursor: pointer;
   border-radius: 6px;
-  margin-bottom: 4px;
+  white-space: nowrap;
 }
 .program-list-item:hover {
   background: #1c2128;
@@ -971,6 +978,45 @@ th {
   color: #58a6ff;
   font-weight: 600;
 }
+/* ---- Day offset toggle buttons ---- */
+.day-offset-btn {
+  background: #0d1117;
+  color: #8b949e;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.day-offset-btn:hover {
+  border-color: #58a6ff;
+  color: #c9d1d9;
+}
+.day-offset-btn.active {
+  background: #1f6feb;
+  color: #fff;
+  border-color: #1f6feb;
+}
+.day-offset-btn.active:hover {
+  background: #388bfd;
+  border-color: #388bfd;
+}
+.day-offset-reset {
+  background: transparent;
+  color: #8b949e;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 2px 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.day-offset-reset:hover {
+  color: #58a6ff;
+}
+
 .program-header {
   display: flex;
   align-items: center;
@@ -1036,18 +1082,10 @@ th {
   margin-bottom: 12px;
 }
 .program-day-name {
-  background: #0d1117;
   color: #c9d1d9;
-  border: 1px solid #30363d;
-  border-radius: 4px;
-  padding: 4px 8px;
   font-size: 0.85rem;
   font-weight: 600;
-  width: 200px;
-}
-.program-day-name:focus {
-  outline: none;
-  border-color: #58a6ff;
+  padding: 4px 8px;
 }
 .program-ex-table {
   width: 100%;
@@ -1106,7 +1144,106 @@ th {
   border-color: #58a6ff;
 }
 
+/* ---- Program editor mode switch ---- */
+.mode-switch-btn {
+  transition: background 0.15s, color 0.15s;
+  font-size: 0.8rem;
+}
+.mode-switch-btn:hover {
+  background: #21262d;
+  color: #c9d1d9;
+}
+.mode-switch-btn.active {
+  background: #1f6feb;
+  color: #fff;
+}
+.mode-switch-btn.active:hover {
+  background: #388bfd;
+}
+
+/* ---- Schedule mode selector (new program modal) ---- */
+.schedule-mode-option {
+  cursor: pointer;
+  padding: 6px 12px;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #8b949e;
+  background: #0d1117;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.schedule-mode-option:hover {
+  border-color: #58a6ff;
+  color: #c9d1d9;
+}
+.schedule-mode-option.active {
+  background: #1f6feb;
+  color: #fff;
+  border-color: #1f6feb;
+}
+.schedule-mode-option.active:hover {
+  background: #388bfd;
+  border-color: #388bfd;
+}
+
+/* ---- Copy day picker ---- */
+.copy-day-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 0.75rem;
+}
+.copy-day-picker select {
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+}
+.copy-day-picker select:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+
 /* ---- Program simulation day boxes ---- */
+.program-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+.program-week-grid .program-day-box {
+  min-width: 0;
+  flex: none;
+  padding: 6px;
+  overflow: hidden;
+}
+.program-week-grid .program-day-box-header {
+  font-size: 0.65rem;
+  margin-bottom: 3px;
+  padding-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.program-week-grid .program-sim-day-table {
+  font-size: 0.6rem;
+  table-layout: fixed;
+}
+.program-week-grid .program-sim-day-table th,
+.program-week-grid .program-sim-day-table td {
+  padding: 1px 2px;
+  word-break: break-all;
+}
+.program-week-grid .program-sim-day-table th:first-child,
+.program-week-grid .program-sim-day-table td:first-child {
+  word-break: break-all;
+}
+.program-week-grid .program-day-box .rest-day-label {
+  padding: 4px;
+  font-size: 0.65rem;
+}
 .program-day-box {
   background: #0d1117;
   border: 1px solid #30363d;

@@ -622,12 +622,13 @@ async function renderMuscle() {
       const netPct = d.net_pct || 0;
       const netCls = netPct > 0 ? 'pos' : netPct < 0 ? 'neg' : '';
       const decayCls = decayPct > 0 ? 'neg' : '';
+      const growthCls = growthPct > 0 ? 'pos' : '';
       const effSets = d.anabolism || 0;
       rows += `<tr>
         <td>${d.day_key}</td>
         <td class="num">${d.total_sets}</td>
         <td class="num">${effSets}</td>
-        <td class="num pos">${formatNum(growthPct, 2)}%</td>
+        <td class="num ${growthCls}">${formatNum(growthPct, 2)}%</td>
         <td class="num ${decayCls}">${formatNum(decayPct, 2)}%</td>
         <td class="num ${netCls}">${formatNum(netPct, 2)}%</td>
         <td class="num">${formatNum(d.pr, 1)}</td>
@@ -801,16 +802,61 @@ async function loadProgram(id) {
   document.getElementById('program-editor').style.display = 'block';
   document.getElementById('program-name').value = p.name;
   document.getElementById('program-weeks').value = p.weeks;
-  document.getElementById('program-days-per-week').value = p.days_per_week || p.days.length;
+  // ── Mode switch ──
+  const modeBtns = document.querySelectorAll('.mode-switch-btn');
+  const cycleDays = () => p.days.length;
+  const updateModeUI = () => {
+    modeBtns.forEach(b => b.classList.toggle('active', b.dataset.mode === p.schedule_mode));
+    document.getElementById('program-mode-label').textContent = p.schedule_mode === 'cycle'
+      ? 'Cycle mode — ' + cycleDays() + '/7 days'
+      : 'Week mode — 7 fixed days (Mon-Sun)';
+    const addBtn = document.getElementById('btn-add-day');
+    addBtn.style.display = (p.schedule_mode === 'cycle' && cycleDays() < 7) ? '' : 'none';
+  };
+  updateModeUI();
+  modeBtns.forEach(btn => {
+    const newBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(newBtn, btn);
+    newBtn.addEventListener('click', async () => {
+      const newMode = newBtn.dataset.mode;
+      if (newMode === p.schedule_mode) return;
+      if (newMode === 'week' && p.days.length < 7) {
+        for (let i = p.days.length; i < 7; i++) {
+          await fetch('/api/programs/' + id + '/days', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ day_number: i + 1 })
+          });
+        }
+      }
+      if (newMode === 'week' && p.days.length > 7) {
+        for (const d of p.days.slice(7)) {
+          await fetch('/api/program-days/' + d.id, { method: 'DELETE' });
+        }
+      }
+      await fetch('/api/programs/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedule_mode: newMode })
+      });
+      loadProgram(id);
+    });
+  });
+
+  const dayNameForPos = (idx) => p.schedule_mode === 'week'
+    ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][idx] || 'Day ' + (idx + 1)
+    : 'Day ' + (idx + 1);
 
   const container = document.getElementById('program-days-container');
   container.innerHTML = p.days.map((d, idx) => `
     <div class="program-day-card" draggable="true" data-day-id="${d.id}">
       <div class="program-day-header">
         <span class="drag-handle">⠿</span>
-        <input type="text" class="program-day-name" value="${escapeHtml(d.name || (p.name + ' - ' + String.fromCharCode(65 + idx)))}" placeholder="${p.name} - ${String.fromCharCode(65 + idx)}">
-        <button class="btn-secondary small danger del-day-btn" style="margin-left:auto">×</button>
+        <strong class="program-day-name">${dayNameForPos(idx)}</strong>
+        <button class="btn-secondary small copy-day-btn" data-day-id="${d.id}" style="margin-left:auto">Copy</button>
+        ${p.schedule_mode === 'cycle' ? '<button class="btn-secondary small danger del-day-btn" style="margin-left:4px">×</button>' : ''}
       </div>
+      <div class="copy-day-picker" id="copy-picker-${d.id}" style="display:none"></div>
       <table class="program-ex-table">
         <thead><tr><th style="width:20px"></th><th>Exercise</th><th>Sets</th><th>Min Reps</th><th>Max Reps</th><th>Increment</th><th>Start</th><th>End</th><th>%Change</th><th></th></tr></thead>
         <tbody data-day-id="${d.id}">
@@ -848,13 +894,6 @@ async function loadProgram(id) {
   `).join('');
 
   // Wire day name changes
-  container.querySelectorAll('.program-day-name').forEach(inp => {
-    inp.addEventListener('change', async () => {
-      const card = inp.closest('.program-day-card');
-      await fetchJSON('/api/program-days/' + card.dataset.dayId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: inp.value }) });
-    });
-  });
-
   // Wire inc-unit-toggle buttons (kg ↔ lb)
   container.querySelectorAll('.inc-unit-toggle').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -890,6 +929,43 @@ async function loadProgram(id) {
       const card = btn.closest('.program-day-card');
       await fetch('/api/program-days/' + card.dataset.dayId, { method: 'DELETE' });
       loadProgram(currentProgramId);
+    });
+  });
+
+  // Wire copy day buttons
+  container.querySelectorAll('.copy-day-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const srcId = parseInt(btn.dataset.dayId);
+      const picker = document.getElementById('copy-picker-' + srcId);
+      const isVisible = picker.style.display !== 'none';
+      // Hide all pickers first
+      document.querySelectorAll('.copy-day-picker').forEach(el => el.style.display = 'none');
+      if (isVisible) return;
+      // Build picker: select target + copy button
+      const otherDays = p.days.filter(d => d.id !== srcId);
+      if (otherDays.length === 0) {
+        picker.innerHTML = '<span style="color:#8b949e;font-size:0.75rem">No other days to copy to</span>';
+      } else {
+        picker.innerHTML = '<span style="color:#8b949e;font-size:0.75rem">Copy exercises to:</span> ' +
+          '<select id="copy-target-' + srcId + '">' +
+          otherDays.map(d => '<option value="' + d.id + '">' + escapeHtml(d.name || 'Day ' + d.id) + '</option>').join('') +
+          '</select> ' +
+          '<button class="btn-primary small do-copy-btn" data-src="' + srcId + '">Copy</button>' +
+          ' <span class="copy-status" style="font-size:0.75rem;color:#8b949e"></span>';
+        picker.querySelector('.do-copy-btn').addEventListener('click', async () => {
+          const targetId = parseInt(document.getElementById('copy-target-' + srcId).value);
+          const statusEl = picker.querySelector('.copy-status');
+          statusEl.textContent = 'Copying...';
+          try {
+            await fetch('/api/program-days/' + srcId + '/copy-to/' + targetId, { method: 'POST' });
+            statusEl.textContent = '\u2713 Copied';
+            setTimeout(() => loadProgram(currentProgramId), 500);
+          } catch (e) {
+            statusEl.textContent = 'Error: ' + e.message;
+          }
+        });
+      }
+      picker.style.display = 'block';
     });
   });
 
@@ -1132,7 +1208,7 @@ async function showSimulation(data) {
 
   for (const week of data.weeks) {
     for (const day of week.days) {
-      const label = `W${week.week} D${day.day}`;
+      const label = day.schedule_mode === 'cycle' ? `W${week.week} D${day.schedule_pos || day.day}` : `W${week.week} D${day.day}`;
       labels.push(label);
       tssVals.push(day.tss);
       ctlVals.push(day.ctl);
@@ -1193,10 +1269,11 @@ async function showSimulation(data) {
   const lastExWeight = {};
   const lastExReps = {};
   for (const week of data.weeks) {
-    tableHtml += `<div style="margin-bottom:16px"><h3 style="color:#58a6ff;margin-bottom:8px;font-size:0.9rem">Week ${week.week}</h3><div style="display:flex;flex-wrap:wrap;gap:12px">`;
+    tableHtml += `<div style="margin-bottom:16px"><h3 style="color:#58a6ff;margin-bottom:8px;font-size:0.9rem">Week ${week.week}</h3><div class="program-week-grid">`;
     for (const day of week.days) {
       const isDayDeload = day.is_deload && day.exercises && day.exercises.length > 0;
-      const dayHeader = `W${week.week} - D${day.day} - ${escapeHtml(day.day_name)}` + (isDayDeload ? ' (Deload)' : '');
+      const dayNum = day.schedule_mode === 'cycle' ? (day.schedule_pos || day.day) : day.day;
+      const dayHeader = `W${week.week} - D${dayNum} - ${escapeHtml(day.day_name)}` + (isDayDeload ? ' (Deload)' : '');
       const boxClass = isDayDeload ? 'program-day-box deload' : 'program-day-box';
       const rowClass = isDayDeload ? 'deload-row' : '';
       tableHtml += `<div class="${boxClass}"><div class="program-day-box-header">${dayHeader}</div>`;
@@ -1217,7 +1294,7 @@ async function showSimulation(data) {
         tableHtml += `<tr class="sim-total-row"><td colspan="4"><strong>Total</strong></td><td><strong>${day.tss}</strong></td></tr>`;
         tableHtml += `</tbody></table>`;
       } else {
-        tableHtml += `<div style="padding:8px;color:#8b949e;font-size:0.8rem;text-align:center">Rest day</div>`;
+        tableHtml += `<div class="rest-day-label" style="color:#8b949e;text-align:center">Rest day</div>`;
       }
       tableHtml += `</div>`;
     }
@@ -1304,7 +1381,7 @@ async function showSimulation(data) {
         for (var ei = 0; ei < (day.exercises || []).length; ei++) {
           var ex = day.exercises[ei];
           if (ex.name === name) {
-            sessions.push({ week: week.week, day: day.day, wt: ex.weight, reps: ex.reps, rm: ex.predicted_1rm });
+            sessions.push({ week: week.week, day: day.day, schedule_pos: day.schedule_pos, schedule_mode: day.schedule_mode, wt: ex.weight, reps: ex.reps, rm: ex.predicted_1rm });
             if (minReps === 0) minReps = ex.min_reps;
           }
         }
@@ -1366,7 +1443,7 @@ async function showSimulation(data) {
         '</div>' +
       '</div>';
 
-    var labels = sessions.map(function(s) { return 'W' + s.week + 'D' + s.day; });
+    var labels = sessions.map(function(s) { return s.schedule_mode === 'cycle' ? 'W' + s.week + 'D' + (s.schedule_pos || s.day) : 'W' + s.week + 'D' + s.day; });
     var rm1Converted = sessions.map(function(s) { return convert1RMToWeight(s.rm, minReps); });
     // Convert each session's (weight, reps) to equivalent weight at minReps (Epley)
     // so rep-only progression shows as visible upward slope on the chart
@@ -1829,17 +1906,36 @@ async function init() {
   npModal.addEventListener('click', (e) => { if (e.target === npModal) npModal.style.display = 'none'; });
   document.getElementById('btn-new-program').addEventListener('click', () => {
     document.getElementById('np-name').value = '';
-    document.getElementById('np-dpw').value = '3';
+    document.getElementById('np-mode-selector').querySelectorAll('.schedule-mode-option').forEach(el => {
+      const isWeek = el.dataset.mode === 'week';
+      el.classList.toggle('active', isWeek);
+      el.querySelector('input').checked = isWeek;
+    });
+    document.getElementById('np-weeks').value = '4';
     npModal.style.display = 'flex';
     document.getElementById('np-name').focus();
+  });
+  // Mode selector in new program modal
+  document.getElementById('np-mode-selector').addEventListener('click', (e) => {
+    const opt = e.target.closest('.schedule-mode-option');
+    if (!opt) return;
+    document.querySelectorAll('#np-mode-selector .schedule-mode-option').forEach(el => {
+      el.classList.toggle('active', el === opt);
+      el.querySelector('input').checked = el === opt;
+    });
   });
   document.getElementById('np-create').addEventListener('click', async () => {
     const name = document.getElementById('np-name').value.trim();
     if (!name) return;
-    const daysPerWeek = parseInt(document.getElementById('np-dpw').value) || 3;
+    const mode = document.querySelector('#np-mode-selector input[name="np-mode"]:checked').value;
+    const weeks = parseInt(document.getElementById('np-weeks').value) || 4;
+    let schedule = null;
+    if (mode === 'cycle') {
+      schedule = { '0': null };
+    }
     npModal.style.display = 'none';
     try {
-      const res = await fetchJSON('/api/programs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, weeks: 4, days_per_week: daysPerWeek }) });
+      const res = await fetchJSON('/api/programs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, weeks, schedule_mode: mode, schedule }) });
       currentProgramId = res.id;
       renderProgramTab();
     } catch (e) {
@@ -1851,12 +1947,10 @@ async function init() {
     if (!currentProgramId) return;
     const name = document.getElementById('program-name').value.trim();
     const weeks = parseInt(document.getElementById('program-weeks').value) || 4;
-    const daysPerWeekEl = document.getElementById('program-days-per-week');
-    const daysPerWeek = daysPerWeekEl.value ? parseInt(daysPerWeekEl.value) : null;
     await fetch('/api/programs/' + currentProgramId, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, weeks, days_per_week: daysPerWeek })
+      body: JSON.stringify({ name, weeks })
     });
     renderProgramTab();
   });
@@ -1871,13 +1965,13 @@ async function init() {
   document.getElementById('btn-add-day').addEventListener('click', async () => {
     if (!currentProgramId) return;
     const p = await fetchJSON('/api/programs/' + currentProgramId);
-    const nextDay = (p.days ? p.days.length : 0) + 1;
-    const letter = String.fromCharCode(64 + nextDay);
-    const name = p.name + ' - ' + letter;
+    const dayCount = p.days ? p.days.length : 0;
+    if (dayCount >= 7) return;
+    const nextDay = dayCount + 1;
     await fetch('/api/programs/' + currentProgramId + '/days', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ day_number: nextDay, name })
+      body: JSON.stringify({ day_number: nextDay })
     });
     loadProgram(currentProgramId);
   });

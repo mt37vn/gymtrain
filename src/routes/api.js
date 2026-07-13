@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../database');
 const { analyzeExercise } = require('../engine/exercise-analyzer');
-const { simulateProgram, suggestWeight, trainingDayOffsets } = require('../engine/program-simulator');
+const { simulateProgram, suggestWeight } = require('../engine/program-simulator');
 const { parseCSVContent } = require('../csv-parser');
 const { runAnalysis } = require('../engine/analyzer');
 const { getParams, saveParams, resetParams } = require('../params');
@@ -270,7 +270,7 @@ router.get('/programs', (req, res) => {
 });
 
 router.post('/programs', express.json(), (req, res) => {
-  const id = db.createProgram(req.body.name, req.body.weeks || 4, req.body.days_per_week);
+  const id = db.createProgram(req.body.name, req.body.weeks || 4, req.body.schedule_mode || 'week');
   res.json({ id });
 });
 
@@ -571,6 +571,11 @@ router.put('/program-exercises/:id', express.json(), (req, res) => {
 
 router.delete('/program-exercises/:id', (req, res) => {
   db.deleteProgramExercise(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+router.post('/program-days/:id/copy-to/:targetId', (req, res) => {
+  db.copyProgramDayExercises(parseInt(req.params.id), parseInt(req.params.targetId));
   res.json({ ok: true });
 });
 

@@ -125,7 +125,7 @@ function runAnalysis() {
         const sumPast = h[1] + h[2] + h[3];
         const growthRate = Math.min(G_MAX, sumPast * G_SET);
         const daysSinceEffective = i - state.lastEffectiveDay;
-        const netRate = daysSinceEffective <= PROTECT ? growthRate : growthRate - DECAY;
+        const netRate = daysSinceEffective === 0 ? growthRate - 2 * DECAY : (daysSinceEffective <= PROTECT ? growthRate : growthRate - DECAY);
         const floorPR = state.peak * FLOOR;
         state.pre = Math.max(floorPR, state.pre * (1 + netRate));
       }

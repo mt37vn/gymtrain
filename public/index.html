@@ -83,20 +83,24 @@
     <!-- ============ TAB: Program ============ -->
     <div id="tab-program" class="tab-content">
       <div id="program-layout">
-        <div id="program-sidebar">
+        <div id="program-topbar">
           <h3>Programs</h3>
           <div id="program-list-items"></div>
-          <button id="btn-new-program" class="btn-secondary" style="width:100%;margin-top:8px">+ New Program</button>
+          <button id="btn-new-program" class="btn-secondary">+ New Program</button>
         </div>
         <div id="program-main">
           <div id="program-editor" style="display:none">
             <div class="program-header">
               <input type="text" id="program-name" placeholder="Program name" class="program-name-input">
               <label class="program-weeks-label">Weeks: <input type="number" id="program-weeks" value="4" min="1" max="52" class="program-weeks-input"></label>
-              <label class="program-weeks-label">Days/Week: <input type="number" id="program-days-per-week" min="1" max="7" class="program-weeks-input"></label>
+              <span id="mode-toggle" style="display:flex;gap:2px;font-size:0.8rem;border:1px solid #30363d;border-radius:4px;overflow:hidden">
+                <button class="mode-switch-btn active" data-mode="week" style="background:transparent;color:#8b949e;border:none;padding:4px 10px;cursor:pointer">Week</button>
+                <button class="mode-switch-btn" data-mode="cycle" style="background:transparent;color:#8b949e;border:none;padding:4px 10px;cursor:pointer">Cycle</button>
+              </span>
               <button id="btn-save-program" class="btn-primary">Save</button>
               <button id="btn-delete-program" class="btn-secondary danger">Delete</button>
             </div>
+            <div id="program-mode-label" style="margin-bottom:8px;font-size:0.75rem;color:#8b949e"></div>
             <div id="program-days-container"></div>
             <button id="btn-add-day" class="btn-secondary" style="margin-top:8px">+ Add Day</button>
           </div>
@@ -258,8 +262,17 @@
     <div style="padding:16px">
       <label style="display:block;margin-bottom:8px">Program name</label>
       <input type="text" id="np-name" class="prog-ex-name" style="width:100%;box-sizing:border-box" placeholder="My Program">
-      <label style="display:block;margin:12px 0 8px">Days per week</label>
-      <input type="number" id="np-dpw" class="prog-ex-name" value="3" min="1" max="7" style="width:80px">
+      <label style="display:block;margin:12px 0 8px">Schedule Mode</label>
+      <div id="np-mode-selector" style="display:flex;gap:8px;margin-bottom:12px">
+        <label class="schedule-mode-option active" data-mode="week" style="cursor:pointer;padding:6px 12px;border:1px solid #30363d;border-radius:6px;font-size:0.85rem">
+          <input type="radio" name="np-mode" value="week" checked style="margin-right:4px"> Week
+        </label>
+        <label class="schedule-mode-option" data-mode="cycle" style="cursor:pointer;padding:6px 12px;border:1px solid #30363d;border-radius:6px;font-size:0.85rem">
+          <input type="radio" name="np-mode" value="cycle" style="margin-right:4px"> Cycle
+        </label>
+      </div>
+      <label style="display:block;margin:12px 0 8px">Weeks</label>
+      <input type="number" id="np-weeks" class="prog-ex-name" value="4" min="1" max="52" style="width:80px">
       <button id="np-create" class="btn-primary" style="margin-top:16px;width:100%">Create</button>
     </div>
   </div>

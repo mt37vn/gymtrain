@@ -4,18 +4,15 @@
 const PLATES_KG = [1.1, 2.2, 4.5, 11.3, 15.9, 20.6];
 const BAR_KG = 20;
 
+// Tie tolerance (kg per side): only combos essentially as close as the best fit
+// are considered interchangeable, so fewest-plates never overrides a closer weight.
+const TIE_TOL = 0.1;
+
 function findBestCombo(targetKgPerSide) {
-  let bestDiff = Infinity;
-  let candidates = [];
+  const combos = [];
   function dfs(idx, sum, counts) {
     if (idx === PLATES_KG.length) {
-      const diff = Math.abs(sum - targetKgPerSide);
-      if (diff < bestDiff - 0.5) {
-        bestDiff = diff;
-        candidates = [[...counts]];
-      } else if (diff <= bestDiff + 0.5) {
-        candidates.push([...counts]);
-      }
+      combos.push({ counts: [...counts], sum });
       return;
     }
     for (let c = 0; c <= 2; c++) {
@@ -25,15 +22,23 @@ function findBestCombo(targetKgPerSide) {
     }
   }
   dfs(0, 0, []);
-  // Among candidates, pick the one with fewest total plates
+
+  // True closest fit first, then only break near-exact ties by fewest plates.
+  const trueBestDiff = Math.min(...combos.map(c => Math.abs(c.sum - targetKgPerSide)));
+  const candidates = combos.filter(c => Math.abs(c.sum - targetKgPerSide) <= trueBestDiff + TIE_TOL);
+
+  const plateCount = c => c.counts.reduce((s, x) => s + x, 0);
   let best = candidates[0];
-  let bestCount = best.reduce((s, c) => s + c, 0);
   for (let i = 1; i < candidates.length; i++) {
-    const count = candidates[i].reduce((s, c) => s + c, 0);
-    if (count < bestCount) { bestCount = count; best = candidates[i]; }
+    const c = candidates[i];
+    const dc = plateCount(c) - plateCount(best);
+    // Prefer fewer plates; break equal-plate ties by the weight closest to target.
+    if (dc < 0 || (dc === 0 &&
+        Math.abs(c.sum - targetKgPerSide) < Math.abs(best.sum - targetKgPerSide))) {
+      best = c;
+    }
   }
-  const totalSide = best.reduce((s, c, i) => s + c * PLATES_KG[i], 0);
-  return { counts: best, perSideKg: Math.round(totalSide * 10) / 10 };
+  return { counts: best.counts, perSideKg: Math.round(best.sum * 10) / 10 };
 }
 
 function nearestPlateWeight(barKg, targetTotalKg) {
@@ -45,4 +50,22 @@ function nearestPlateWeight(barKg, targetTotalKg) {
   return { totalKg, perSideKg: combo.perSideKg, plates, diff: Math.round((totalKg - targetTotalKg) * 10) / 10 };
 }
 
-module.exports = { nearestPlateWeight, PLATES_KG, BAR_KG };
+// Largest achievable total load that does not exceed maxTotalKg (fewest plates on ties).
+function plateWeightAtMost(barKg, maxTotalKg) {
+  const maxPerSide = (maxTotalKg - barKg) / 2;
+  if (maxPerSide < 0) return barKg;
+  let best = { sum: 0, count: 0 };
+  (function dfs(idx, sum, count) {
+    if (idx === PLATES_KG.length) {
+      if (sum <= maxPerSide + 1e-9 &&
+          (sum > best.sum + 1e-9 || (Math.abs(sum - best.sum) < 1e-9 && count < best.count))) {
+        best = { sum, count };
+      }
+      return;
+    }
+    for (let c = 0; c <= 2; c++) dfs(idx + 1, sum + c * PLATES_KG[idx], count + c);
+  })(0, 0, 0);
+  return Math.round((barKg + 2 * best.sum) * 10) / 10;
+}
+
+module.exports = { nearestPlateWeight, plateWeightAtMost, PLATES_KG, BAR_KG };

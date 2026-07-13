@@ -97,6 +97,10 @@ function initDatabase() {
   try { db.exec('UPDATE program_exercises SET use_lb_inc = 0 WHERE use_lb_inc IS NULL'); } catch (_) {}
   try { db.exec('ALTER TABLE daily_metrics ADD COLUMN total_warmup_sets INTEGER DEFAULT 0'); } catch (_) {}
   try { db.exec('UPDATE daily_metrics SET total_warmup_sets = 0 WHERE total_warmup_sets IS NULL'); } catch (_) {}
+  try { db.exec("ALTER TABLE programs ADD COLUMN day_offsets TEXT"); } catch (_) {}
+  try { db.exec("ALTER TABLE programs ADD COLUMN schedule_mode TEXT DEFAULT 'week'"); } catch (_) {}
+  try { db.exec('UPDATE programs SET schedule_mode = \'week\' WHERE schedule_mode IS NULL'); } catch (_) {}
+  try { db.exec("ALTER TABLE programs ADD COLUMN schedule_data TEXT"); } catch (_) {}
 
   return db;
 }
@@ -296,8 +300,17 @@ function deleteSet(id) {
 
 /* ─── Program CRUD ─── */
 
-function createProgram(name, weeks, daysPerWeek) {
-  return db.prepare('INSERT INTO programs (name, weeks, days_per_week) VALUES (?, ?, ?)').run(name, weeks, daysPerWeek || null).lastInsertRowid;
+function createProgram(name, weeks, scheduleMode) {
+  const id = db.prepare('INSERT INTO programs (name, weeks, schedule_mode) VALUES (?, ?, ?)').run(name, weeks, scheduleMode || 'week').lastInsertRowid;
+  if (scheduleMode === 'week') {
+    const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    for (let i = 0; i < 7; i++) {
+      db.prepare('INSERT INTO program_days (program_id, day_number, name, sort_order) VALUES (?, ?, ?, ?)').run(id, i + 1, DAY_NAMES[i], i + 1);
+    }
+  } else {
+    db.prepare('INSERT INTO program_days (program_id, day_number, name, sort_order) VALUES (?, ?, ?, ?)').run(id, 1, 'Day 1', 1);
+  }
+  return id;
 }
 
 function getAllPrograms() {
@@ -334,6 +347,18 @@ function updateProgram(id, fields) {
 
 function deleteProgram(id) {
   db.prepare('DELETE FROM programs WHERE id = ?').run(id);
+}
+
+function copyProgramDayExercises(sourceDayId, targetDayId) {
+  const exercises = db.prepare('SELECT * FROM program_exercises WHERE day_id = ? ORDER BY sort_order, id').all(sourceDayId);
+  const insert = db.transaction((exs) => {
+    const stmt = db.prepare('INSERT INTO program_exercises (day_id, exercise_name, sets, min_reps, min_increment, sort_order, use_lb_inc) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    for (let i = 0; i < exs.length; i++) {
+      const ex = exs[i];
+      stmt.run(targetDayId, ex.exercise_name, ex.sets, ex.min_reps, ex.min_increment, i + 1, ex.use_lb_inc || 0);
+    }
+  });
+  insert(exercises);
 }
 
 function addProgramDay(programId, dayNumber, name) {
@@ -431,6 +456,7 @@ module.exports = {
   getProgram,
   updateProgram,
   deleteProgram,
+  copyProgramDayExercises,
   addProgramDay,
   updateProgramDay,
   deleteProgramDay,
