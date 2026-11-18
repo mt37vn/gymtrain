@@ -88,4 +88,4 @@ data/gym.db                # Database SQLite
 params-default.json        # Tham số mặc định
 ```
 
-> Repository có thể chứa sẵn database và tham số cá nhân trong `data/` và `params.json`; kiểm tra trước khi chia sẻ công khai.
+> `params.json` và thư mục `data/` chứa cấu hình và dữ liệu tập cá nhân, đã được thêm vào `.gitignore` và không nên commit lên repository công khai.
