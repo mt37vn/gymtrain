@@ -6,7 +6,7 @@ const { runAnalysis } = require('./engine/analyzer');
 const apiRoutes = require('./routes/api');
 
 const CSV_PATH = process.env.CSV_PATH || 'C:\\Users\\pc\\Downloads\\618-11f1-8c41-57a0acc381c9.csv';
-const PORT = parseInt(process.env.PORT, 10) || 3000;
+const PORT = parseInt(process.env.PORT, 10) || 3001;
 
 console.log('Initializing database...');
 db.initDatabase();
